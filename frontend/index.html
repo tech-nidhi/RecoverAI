@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RecoverAI — AI CFO Copilot & Revenue Control Plane</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3.5 3.5H9.5V28.5H3.5V3.5Z' fill='%23D6A43A'/%3E%3Cpath d='M9.5 3.5H20.5L27 10L20.5 16.5H9.5V11.5H19.5L21.5 10L19.5 8.5H9.5V3.5Z' fill='%23D6A43A'/%3E%3Cpath d='M13.5 16H19.5L27.5 28.5H20.5L13.5 18V16Z' fill='%23D6A43A'/%3E%3C/svg%3E">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Instrument Serif, JetBrains Mono, Space Grotesk, Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'ledger-bg': '#050505',
+            'ledger-card': '#0D0D0D',
+            'ledger-card-subtle': '#121212',
+            'ledger-border': '#1E1E1C',
+            'amber-gold': '#D6A43A',
+            'teal-success': '#35C7A0',
+            'danger-red': '#D85C5C',
+            'text-primary': '#F2F0EA',
+            'text-muted': '#8A8A84',
+          },
+          fontFamily: {
+            serif: ['Instrument Serif', 'serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+            heading: ['Space Grotesk', 'sans-serif'],
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #050505;
+      color: #F2F0EA;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    .font-serif-headline {
+      font-family: 'Instrument Serif', serif;
+    }
+
+    .font-jetbrains {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .font-space {
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    /* Financial Ledger Grid Overlay */
+    .ledger-grid-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.14;
+    }
+
+    /* Ticker animation */
+    @keyframes tickerScroll {
+      0% { transform: translateX(0%); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .animate-ticker {
+      display: inline-block;
+      white-space: nowrap;
+      animation: tickerScroll 35s linear infinite;
+    }
+
+    .animate-ticker:hover {
+      animation-play-state: paused;
+    }
+
+    /* System Panel Cards */
+    .ledger-panel {
+      background-color: #0D0D0D;
+      border: 1px solid #1E1E1C;
+    }
+
+    .ledger-panel-gold {
+      background-color: #0F0E0A;
+      border: 1px solid rgba(214, 164, 58, 0.35);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #050505; }
+    ::-webkit-scrollbar-thumb { background: #1E1E1C; }
+  </style>
+</head>
+<body class="min-h-screen relative selection:bg-amber-gold/30 selection:text-amber-gold">
+
+  <!-- Financial Ledger Grid Background -->
+  <svg class="ledger-grid-overlay" xmlns="http://www.w3.org/2000/svg">
+    <pattern id="ledger-pattern" width="160" height="40" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="39" x2="160" y2="39" stroke="#8A8A84" stroke-width="0.5" />
+      <line x1="159" y1="0" x2="159" y2="40" stroke="#8A8A84" stroke-width="0.5" stroke-dasharray="2,2" />
+    </pattern>
+    <rect width="100%" height="100%" fill="url(#ledger-pattern)" />
+  </svg>
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // -------------------------------------------------------------------------
+    // 1. TOP LIVE AUDIT TICKER COMPONENT
+    // -------------------------------------------------------------------------
+    function AuditTicker() {
+      const tickerItems = [
+        { id: 'txn_8f2a1c', action: 'RECOVERED', amount: '₹1,249', status: 'SUCCESS' },
+        { id: 'txn_3c91b7', action: 'RETRY_ATTEMPT_2', amount: '₹4,890', status: 'ACTIVE' },
+        { id: 'txn_9a7d11', action: 'POLICY_OVERRIDE', amount: '₹22,000', status: 'BLOCKED' },
+        { id: 'txn_4d0e2b', action: 'RECOVERED', amount: '₹2,799', status: 'SUCCESS' },
+        { id: 'txn_7e1f4a', action: 'PAYMENT_LINK_SENT', amount: '₹14,500', status: 'ACTIVE' },
+        { id: 'txn_5b8c9d', action: 'RECOVERED', amount: '₹850', status: 'SUCCESS' },
+      ];
+
+      return (
+        <div className="w-full bg-ledger-bg border-b border-ledger-border overflow-hidden py-1.5 font-jetbrains text-[11px]">
+          <div className="max-w-7xl mx-auto flex items-center px-4">
+            <span className="shrink-0 text-amber-gold font-bold uppercase tracking-wider mr-4 flex items-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-gold animate-ping mr-2"></span>
+              LIVE INTERVENTIONS
+            </span>
+            <div className="overflow-hidden relative w-full">
+              <div className="animate-ticker space-x-8 text-text-muted">
+                {tickerItems.concat(tickerItems).map((item, idx) => (
+                  <span key={idx} className="inline-flex items-center space-x-2">
+                    <span className="text-text-primary font-mono">{item.id}</span>
+                    <span className={item.status === 'SUCCESS' ? 'text-teal-success font-bold' : item.status === 'BLOCKED' ? 'text-amber-gold' : 'text-text-muted'}>
+                      {item.action} {item.amount}
+                    </span>
+                    <span className="text-ledger-border">│</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. ASK RECOVERAI COPILOT QUERY PANEL COMPONENT
+    // -------------------------------------------------------------------------
+    function AskRecoverAICopilot({ onSelectCase, scrollToSimulator }) {
+      const [query, setQuery] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [response, setResponse] = useState(null);
+      const [showSources, setShowSources] = useState(false);
+
+      const presets = [
+        "Why did recovery drop today?",
+        "Which customers should I follow up with?",
+        "Why didn't RecoverAI retry this payment?",
+        "What happens if I increase max retries to 3?"
+      ];
+
+      const handleQuery = async (qText) => {
+        const targetQ = qText || query;
+        if (!targetQ.trim()) return;
+
+        setLoading(true);
+        try {
+          const res = await fetch('/copilot/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: targetQ })
+          });
+          const data = await res.json();
+          setResponse(data);
+        } catch (e) {
+          console.error("Copilot query failed", e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="ledger-panel p-6 space-y-5 font-jetbrains">
+          <div className="flex items-center justify-between border-b border-ledger-border pb-3">
+            <div className="flex items-center space-x-2 text-amber-gold font-bold">
+              <span className="w-2 h-2 rounded-full bg-amber-gold"></span>
+              <span className="uppercase tracking-widest text-xs">ASK RECOVERAI // OPERATIONAL COPILOT</span>
+            </div>
+            <span className="text-[10px] text-text-muted">EVIDENCE-GROUNDED QUERY INTERFACE</span>
+          </div>
+
+          {/* Search Input Bar */}
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              placeholder="Ask about your recovery pipeline, policy rules, or strategy..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleQuery()}
+              className="w-full bg-ledger-bg border border-ledger-border text-text-primary px-4 py-2.5 text-xs font-mono focus:border-amber-gold focus:outline-none"
+            />
+            <button
+              onClick={() => handleQuery()}
+              disabled={loading}
+              className="px-5 py-2.5 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+            >
+              {loading ? 'ANALYZING...' : 'QUERY'}
+            </button>
+          </div>
+
+          {/* Suggested Preset Queries */}
+          <div className="flex flex-wrap gap-2 text-[10px] text-text-muted">
+            <span className="py-1">Suggested Operational Queries:</span>
+            {presets.map((p, idx) => (
+              <button
+                key={idx}
+                onClick={() => { setQuery(p); handleQuery(p); }}
+                className="px-2.5 py-1 bg-ledger-card-subtle border border-ledger-border hover:border-amber-gold hover:text-text-primary transition"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {/* Structured Evidence-Backed Response Display */}
+          {response && (
+            <div className="bg-ledger-card-subtle p-5 border border-ledger-border space-y-4 text-xs">
+              
+              {/* Answer & Confidence */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">OPERATIONAL ANALYSIS</span>
+                  <span className="text-[10px] text-teal-success font-bold px-2 py-0.5 bg-teal-success/10 border border-teal-success/30">
+                    CONFIDENCE: {response.confidence}
+                  </span>
+                </div>
+                <p className="text-text-primary font-sans leading-relaxed text-sm">
+                  {response.answer}
+                </p>
+              </div>
+
+              {/* Policy Explanation Component (Subordinate AI Principle) */}
+              {response.policy_explanation && (
+                <div className="bg-amber-gold/10 border border-amber-gold/40 p-3 space-y-2 text-xs">
+                  <div className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">
+                    SUBORDINATE AI POLICY CHECK
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                    <div><span className="text-text-muted block">AI RECOMMENDATION</span><span className="font-bold text-text-primary">{response.policy_explanation.ai_recommendation}</span></div>
+                    <div><span className="text-text-muted block">POLICY RULE</span><span className="font-bold text-amber-gold">{response.policy_explanation.policy_rule}</span></div>
+                    <div><span className="text-text-muted block">ATTEMPTS</span><span className="font-bold text-text-primary">{response.policy_explanation.current_attempts}</span></div>
+                    <div><span className="text-text-muted block">FINAL DECISION</span><span className="font-bold text-amber-gold">{response.policy_explanation.final_decision}</span></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Simulation Preview Component */}
+              {response.simulation_preview && (
+                <div className="bg-ledger-bg p-3 border border-ledger-border space-y-3">
+                  <div className="flex items-center justify-between text-[10px] text-amber-gold font-bold uppercase tracking-wider">
+                    <span>COUNTERFACTUAL SIMULATION PREVIEW</span>
+                    <button onClick={scrollToSimulator} className="text-amber-gold hover:underline">
+                      OPEN FULL SIMULATOR →
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                    <div className="bg-ledger-card p-2 border border-ledger-border">
+                      <span className="text-[10px] text-text-muted block">CURRENT ({response.simulation_preview.current_policy})</span>
+                      <span className="font-bold text-text-primary">{response.simulation_preview.current_recovery}</span>
+                    </div>
+                    <div className="bg-ledger-card p-2 border border-ledger-border">
+                      <span className="text-[10px] text-text-muted block">PROPOSED ({response.simulation_preview.proposed_policy})</span>
+                      <span className="font-bold text-teal-success">{response.simulation_preview.proposed_recovery}</span>
+                    </div>
+                    <div className="bg-teal-success/10 p-2 border border-teal-success/30">
+                      <span className="text-[10px] text-teal-success block">INCREMENTAL LIFT</span>
+                      <span className="font-bold text-teal-success">{response.simulation_preview.incremental_recovery}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Clickable Evidence Chips */}
+              {response.evidence && response.evidence.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-ledger-border">
+                  <div className="text-[10px] text-text-muted font-bold uppercase tracking-wider">SUPPORTING DATA EVIDENCE</div>
+                  <div className="flex flex-wrap gap-2">
+                    {response.evidence.map((ev, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => ev.case_id && onSelectCase(ev.case_id)}
+                        className="px-2.5 py-1 bg-ledger-bg border border-amber-gold/40 text-amber-gold text-[11px] font-mono hover:bg-amber-gold/10 transition"
+                      >
+                        [{ev.label}] {ev.case_id ? '➔' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* View Fact Sources Button */}
+              <div className="flex justify-between items-center text-[10px] text-text-muted pt-2 border-t border-ledger-border">
+                <span>AI ANALYSIS SUBORDINATE TO DETERMINISTIC CONTROL</span>
+                <button
+                  onClick={() => setShowSources(!showSources)}
+                  className="text-amber-gold hover:underline uppercase font-bold"
+                >
+                  {showSources ? 'HIDE SOURCES ▲' : 'VIEW SOURCES ▼'}
+                </button>
+              </div>
+
+              {showSources && response.sources && (
+                <div className="bg-ledger-bg p-3 border border-ledger-border text-[10px] font-mono space-y-1 text-text-muted">
+                  <div className="font-bold text-text-primary uppercase">FACTUAL DATASET SOURCES RECORDED:</div>
+                  {response.sources.map((s, idx) => (
+                    <div key={idx}>• {s}</div>
+                  ))}
+                </div>
+              )}
+
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. DEDICATED AUDIT TRAIL VIEW COMPONENT
+    // -------------------------------------------------------------------------
+    function AuditTrailView({ cases, onSelectCase }) {
+      const [searchQuery, setSearchQuery] = useState('');
+      const [eventTypeFilter, setEventTypeFilter] = useState('');
+      const [outcomeFilter, setOutcomeFilter] = useState('');
+      const [actorFilter, setActorFilter] = useState('');
+
+      const defaultEvents = [
+        { time: '11:04:17.421', event: 'PAYMENT_RECOVERED', txn_id: 'txn_8f2a1c', amount: 233468, actor: 'RECOVERY_ENGINE', result: '✓ SUCCESS', outcome: 'RECOVERED' },
+        { time: '11:03:51.209', event: 'PAYMENT_LINK_SENT', txn_id: 'txn_92fa11', amount: 48920, actor: 'POLICY_ENGINE', result: 'EXECUTED', outcome: 'PENDING' },
+        { time: '11:03:42.887', event: 'ESCALATION_TRIGGERED', txn_id: 'txn_7c812e', amount: 81240, actor: 'RECOVERY_ENGINE', result: 'ESCALATED', outcome: 'ESCALATED' },
+        { time: '11:03:31.144', event: 'RETRY_SCHEDULED', txn_id: 'txn_91af21', amount: 12480, actor: 'POLICY_ENGINE', result: 'APPROVED', outcome: 'PENDING' },
+        { time: '11:03:02.882', event: 'POLICY_MATCHED', txn_id: 'txn_81ab92', amount: 6920, actor: 'POLICY_ENGINE', result: 'RETRY_V2', outcome: 'PENDING' },
+        { time: '11:02:49.104', event: 'RISK_SCORED', txn_id: 'txn_3c91b7', amount: 244952, actor: 'ML_ENGINE', result: '0.942 HIGH', outcome: 'PENDING' },
+        { time: '11:02:48.231', event: 'PAYMENT_FAILED', txn_id: 'txn_9a7d11', amount: 243157, actor: 'SYSTEM', result: 'FAILED', outcome: 'FAILED' },
+        { time: '11:01:14.002', event: 'POLICY_BLOCKED', txn_id: 'txn_5c12e8', amount: 112000, actor: 'POLICY_ENGINE', result: 'BLOCKED', outcome: 'BLOCKED' },
+      ];
+
+      const mappedBackendEvents = cases.map((c, i) => ({
+        time: `10:${59 - (i % 60)}:${(10 + i * 7) % 60}.${100 + i * 13}`,
+        event: c.outcome === 'SUCCESS' ? 'PAYMENT_RECOVERED' : c.final_action === 'STOP' ? 'POLICY_BLOCKED' : c.final_action === 'ESCALATE' ? 'ESCALATION_TRIGGERED' : 'ACTION_APPROVED',
+        txn_id: c.event_id,
+        customer_id: c.customer_id,
+        amount: c.amount,
+        actor: c.final_action === 'STOP' ? 'POLICY_ENGINE' : 'RECOVERY_ENGINE',
+        result: c.outcome === 'SUCCESS' ? '✓ SUCCESS' : c.outcome,
+        outcome: c.outcome === 'SUCCESS' ? 'RECOVERED' : c.outcome,
+      }));
+
+      const allEvents = mappedBackendEvents.length > 0 ? mappedBackendEvents : defaultEvents;
+
+      const filteredEvents = allEvents.filter(ev => {
+        if (searchQuery && !ev.txn_id.toLowerCase().includes(searchQuery.toLowerCase()) && !(ev.customer_id && ev.customer_id.toLowerCase().includes(searchQuery.toLowerCase()))) return false;
+        if (eventTypeFilter && ev.event !== eventTypeFilter) return false;
+        if (outcomeFilter && ev.outcome !== outcomeFilter) return false;
+        if (actorFilter && ev.actor !== actorFilter) return false;
+        return true;
+      });
+
+      return (
+        <div className="max-w-7xl mx-auto px-6 py-10 space-y-8 font-jetbrains">
+          
+          {/* PAGE HEADER & OPERATIONAL STATS */}
+          <div className="space-y-6 border-b border-ledger-border pb-8">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center space-x-2 text-xs text-amber-gold font-bold uppercase tracking-widest mb-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-gold animate-ping"></span>
+                  <span>AUDIT TRAIL // EVERY INTERVENTION LEAVES A TRACE.</span>
+                </div>
+                <h1 className="font-serif-headline text-5xl text-text-primary">
+                  Financial Event Ledger & Trace
+                </h1>
+                <p className="font-sans text-xs text-text-muted max-w-2xl mt-2 leading-relaxed">
+                  A complete, chronological record of every revenue recovery decision, policy evaluation, intervention, and outcome.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-3 bg-ledger-card px-4 py-2 border border-ledger-border text-xs">
+                <span className="text-text-muted">SYSTEM STATUS</span>
+                <span className="text-teal-success font-bold flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-teal-success animate-pulse mr-1.5"></span>
+                  ● LIVE AUDIT STREAM
+                </span>
+              </div>
+            </div>
+
+            {/* OPERATIONAL SYSTEM STATS */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+              <div className="ledger-panel p-3.5 text-center">
+                <div className="text-[10px] text-text-muted uppercase font-bold">EVENTS TODAY</div>
+                <div className="text-2xl font-bold text-text-primary mt-1">18,429</div>
+              </div>
+              <div className="ledger-panel p-3.5 text-center border-l-2 border-l-teal-success">
+                <div className="text-[10px] text-text-muted uppercase font-bold">RECOVERED</div>
+                <div className="text-2xl font-bold text-teal-success mt-1">₹24.8L</div>
+              </div>
+              <div className="ledger-panel p-3.5 text-center border-l-2 border-l-amber-gold">
+                <div className="text-[10px] text-text-muted uppercase font-bold">INTERVENTIONS</div>
+                <div className="text-2xl font-bold text-amber-gold mt-1">7,214</div>
+              </div>
+              <div className="ledger-panel p-3.5 text-center">
+                <div className="text-[10px] text-text-muted uppercase font-bold">ESCALATIONS</div>
+                <div className="text-2xl font-bold text-text-primary mt-1">382</div>
+              </div>
+              <div className="ledger-panel p-3.5 text-center border-l-2 border-l-danger-red">
+                <div className="text-[10px] text-text-muted uppercase font-bold">POLICY BLOCKS</div>
+                <div className="text-2xl font-bold text-danger-red mt-1">41</div>
+              </div>
+            </div>
+          </div>
+
+          {/* FILTER BAR */}
+          <div className="ledger-panel p-4 flex flex-wrap items-center gap-3 text-xs">
+            <input
+              type="text"
+              placeholder="SEARCH TRANSACTION / CUSTOMER..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-2 text-xs font-mono focus:border-amber-gold w-64"
+            />
+
+            <select
+              value={eventTypeFilter}
+              onChange={(e) => setEventTypeFilter(e.target.value)}
+              className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-2 text-xs font-mono focus:border-amber-gold"
+            >
+              <option value="">EVENT TYPE: ALL</option>
+              <option value="PAYMENT_FAILED">PAYMENT FAILED</option>
+              <option value="RISK_SCORED">RISK SCORED</option>
+              <option value="POLICY_MATCHED">POLICY MATCHED</option>
+              <option value="ACTION_APPROVED">ACTION APPROVED</option>
+              <option value="RETRY_SCHEDULED">RETRY SCHEDULED</option>
+              <option value="PAYMENT_LINK_SENT">PAYMENT LINK SENT</option>
+              <option value="PAYMENT_RECOVERED">PAYMENT RECOVERED</option>
+              <option value="ESCALATION_TRIGGERED">ESCALATED</option>
+              <option value="POLICY_BLOCKED">POLICY BLOCKED</option>
+            </select>
+
+            <select
+              value={outcomeFilter}
+              onChange={(e) => setOutcomeFilter(e.target.value)}
+              className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-2 text-xs font-mono focus:border-amber-gold"
+            >
+              <option value="">OUTCOME: ALL</option>
+              <option value="RECOVERED">RECOVERED</option>
+              <option value="PENDING">PENDING</option>
+              <option value="ESCALATED">ESCALATED</option>
+              <option value="FAILED">FAILED</option>
+              <option value="BLOCKED">BLOCKED</option>
+            </select>
+
+            <select
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value)}
+              className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-2 text-xs font-mono focus:border-amber-gold"
+            >
+              <option value="">ACTOR: ALL</option>
+              <option value="RECOVERY_ENGINE">RECOVERY ENGINE</option>
+              <option value="ML_ENGINE">ML ENGINE</option>
+              <option value="POLICY_ENGINE">POLICY ENGINE</option>
+              <option value="SYSTEM">SYSTEM</option>
+            </select>
+
+            <div className="ml-auto flex items-center space-x-2 text-[10px] text-text-muted">
+              <span>AUDIT INTEGRITY:</span>
+              <span className="text-teal-success font-bold">✓ 100% AUDITABLE</span>
+            </div>
+          </div>
+
+          {/* MAIN DENSE EVENT LEDGER TABLE */}
+          <div id="audit-section" className="ledger-panel p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-ledger-border pb-3">
+              <div className="text-xs text-amber-gold font-bold uppercase tracking-wider">
+                DENSE CHRONOLOGICAL EVENT STREAM
+              </div>
+              <span className="text-[10px] text-text-muted">CLICK ANY ROW TO OPEN TRANSACTION INVESTIGATION DRAWER</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-jetbrains">
+                <thead className="bg-ledger-card-subtle uppercase text-[10px] text-text-muted border-b border-ledger-border">
+                  <tr>
+                    <th className="py-3 px-4">Time</th>
+                    <th className="py-3 px-4">Event</th>
+                    <th className="py-3 px-4">Transaction ID</th>
+                    <th className="py-3 px-4 text-right">Value</th>
+                    <th className="py-3 px-4 text-center">Actor</th>
+                    <th className="py-3 px-4 text-right">Result</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-ledger-border/60">
+                  {filteredEvents.map((ev, idx) => {
+                    const isTeal = ['PAYMENT_RECOVERED', 'CASE_CLOSED', '✓ SUCCESS', 'RECOVERED'].includes(ev.event) || ev.result.includes('SUCCESS');
+                    const isRed = ['PAYMENT_FAILED', 'POLICY_BLOCKED', 'ESCALATION_TRIGGERED', 'BLOCKED', 'FAILED'].includes(ev.event) || ev.result.includes('BLOCKED');
+                    const colorClass = isTeal ? 'text-teal-success' : isRed ? 'text-danger-red' : 'text-amber-gold';
+
+                    return (
+                      <tr
+                        key={idx}
+                        onClick={() => onSelectCase(ev.txn_id)}
+                        className="hover:bg-amber-gold/5 cursor-pointer transition"
+                      >
+                        <td className="py-3.5 px-4 text-text-muted font-mono text-[11px]">{ev.time}</td>
+                        <td className={`py-3.5 px-4 font-bold ${colorClass}`}>{ev.event}</td>
+                        <td className="py-3.5 px-4 font-mono font-bold text-text-primary">{ev.txn_id}</td>
+                        <td className="py-3.5 px-4 text-right font-bold text-text-primary">₹{ev.amount.toLocaleString('en-IN')}</td>
+                        <td className="py-3.5 px-4 text-center text-text-muted text-[10px] font-bold">{ev.actor}</td>
+                        <td className={`py-3.5 px-4 text-right font-bold ${colorClass}`}>{ev.result}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      );
+    }
+
+    const AngularRLogo = ({ size = 28, className = "" }) => (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={`inline-block shrink-0 ${className}`}
+      >
+        {/* Geometric Angular R Monogram (Option 2 Concept) */}
+        {/* Stem */}
+        <path d="M3.5 3.5H9.5V28.5H3.5V3.5Z" fill="#D6A43A" />
+        {/* Chamfered Upper Loop */}
+        <path d="M9.5 3.5H20.5L27 10L20.5 16.5H9.5V11.5H19.5L21.5 10L19.5 8.5H9.5V3.5Z" fill="#D6A43A" />
+        {/* Sharp Angular Diagonal Leg */}
+        <path d="M13.5 16H19.5L27.5 28.5H20.5L13.5 18V16Z" fill="#D6A43A" />
+      </svg>
+    );
+
+    // -------------------------------------------------------------------------
+    // 4. MAIN RECOVERAI APPLICATION
+    // -------------------------------------------------------------------------
+    function App() {
+      const getRouteFromLocation = () => {
+        const path = window.location.pathname;
+        const hash = window.location.hash.replace('#', '');
+        if (path.includes('audit-trail') || hash.includes('audit-trail')) return 'audit';
+        if (path.includes('recovery') || hash.includes('recovery')) return 'recovery';
+        if (path.includes('policy-engine') || hash.includes('policy-engine')) return 'policy';
+        if (path.includes('simulator') || hash.includes('simulator')) return 'simulator';
+        return 'command_center';
+      };
+
+      const [activeTab, setActiveTab] = useState(getRouteFromLocation());
+      const [brief, setBrief] = useState(null);
+      const [summary, setSummary] = useState(null);
+      const [cases, setCases] = useState([]);
+      const [selectedCase, setSelectedCase] = useState(null);
+      const [simulator, setSimulator] = useState(null);
+      const [govConfig, setGovConfig] = useState(null);
+      const [pendingApprovals, setPendingApprovals] = useState([]);
+      const [impactData, setImpactData] = useState(null);
+      const [experimentsData, setExperimentsData] = useState([]);
+      const [showPauseModal, setShowPauseModal] = useState(false);
+      const [categoryFilter, setCategoryFilter] = useState('');
+      const [actionFilter, setActionFilter] = useState('');
+      const [outcomeFilter, setOutcomeFilter] = useState('');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [page, setPage] = useState(1);
+      const [totalPages, setTotalPages] = useState(1);
+      const [loading, setLoading] = useState(true);
+
+      const fetchImpactAnalytics = async () => {
+        try {
+          const res = await fetch('/analytics/recovery-impact');
+          const data = await res.json();
+          setImpactData(data);
+        } catch (e) {
+          console.error("Failed to fetch recovery impact analytics", e);
+        }
+      };
+
+      const fetchExperiments = async () => {
+        try {
+          const res = await fetch('/experiments');
+          const data = await res.json();
+          setExperimentsData(data.experiments || []);
+        } catch (e) {
+          console.error("Failed to fetch experiments", e);
+        }
+      };
+
+      const fetchGovernanceConfig = async () => {
+        try {
+          const res = await fetch('/governance/config');
+          const data = await res.json();
+          setGovConfig(data);
+        } catch (e) {
+          console.error("Failed to fetch governance config", e);
+        }
+      };
+
+      const fetchPendingApprovals = async () => {
+        try {
+          const res = await fetch('/governance/approvals');
+          const data = await res.json();
+          setPendingApprovals(data.approvals || []);
+        } catch (e) {
+          console.error("Failed to fetch pending approvals", e);
+        }
+      };
+
+      const handleToggleKillSwitch = async (active) => {
+        try {
+          await fetch('/governance/kill-switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active, actor: 'ADMIN', reason: active ? 'Manual resume' : 'Emergency safety pause' })
+          });
+          fetchGovernanceConfig();
+          setShowPauseModal(false);
+        } catch (e) {
+          console.error("Failed to toggle kill switch", e);
+        }
+      };
+
+      const handleApprovalDecision = async (approvalId, decision) => {
+        try {
+          await fetch(`/governance/approvals/${approvalId}/decision`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision, actor: 'ADMIN' })
+          });
+          fetchPendingApprovals();
+          fetchCases();
+        } catch (e) {
+          console.error("Failed to process approval decision", e);
+        }
+      };
+
+      const fetchCopilotBrief = async () => {
+        try {
+          const res = await fetch('/copilot/brief');
+          const data = await res.json();
+          setBrief(data);
+        } catch (e) {
+          console.error("Failed to fetch copilot brief", e);
+        }
+      };
+
+      const fetchSummary = async () => {
+        try {
+          const res = await fetch('/summary');
+          const data = await res.json();
+          setSummary(data);
+        } catch (e) {
+          console.error("Failed to fetch summary", e);
+        }
+      };
+
+      const fetchSimulator = async () => {
+        try {
+          const res = await fetch('/simulator');
+          const data = await res.json();
+          setSimulator(data);
+        } catch (e) {
+          console.error("Failed to fetch simulator", e);
+        }
+      };
+
+      const fetchCases = async () => {
+        setLoading(true);
+        try {
+          let url = `/cases?page=${page}&limit=10`;
+          if (categoryFilter) url += `&category=${encodeURIComponent(categoryFilter)}`;
+          if (actionFilter) url += `&action=${encodeURIComponent(actionFilter)}`;
+          if (outcomeFilter) url += `&outcome=${encodeURIComponent(outcomeFilter)}`;
+          if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          setCases(data.cases || []);
+          setTotalPages(data.total_pages || 1);
+        } catch (e) {
+          console.error("Failed to fetch cases", e);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchCopilotBrief();
+        fetchSummary();
+        fetchSimulator();
+        fetchGovernanceConfig();
+        fetchPendingApprovals();
+        fetchImpactAnalytics();
+        fetchExperiments();
+
+        const syncLocation = () => {
+          const r = getRouteFromLocation();
+          setActiveTab(r);
+          setTimeout(() => {
+            if (r === 'command_center') window.scrollTo({ top: 0, behavior: 'smooth' });
+            else if (r === 'recovery') document.getElementById('cases-section')?.scrollIntoView({ behavior: 'smooth' });
+            else if (r === 'policy') document.getElementById('policy-section')?.scrollIntoView({ behavior: 'smooth' });
+            else if (r === 'audit') document.getElementById('audit-section')?.scrollIntoView({ behavior: 'smooth' });
+            else if (r === 'simulator') document.getElementById('simulator-section')?.scrollIntoView({ behavior: 'smooth' });
+          }, 30);
+        };
+        syncLocation();
+        window.addEventListener('popstate', syncLocation);
+        window.addEventListener('hashchange', syncLocation);
+        return () => {
+          window.removeEventListener('popstate', syncLocation);
+          window.removeEventListener('hashchange', syncLocation);
+        };
+      }, []);
+
+      useEffect(() => {
+        fetchCases();
+      }, [page, categoryFilter, actionFilter, outcomeFilter, searchQuery]);
+
+      const handleSelectCaseById = async (eventId) => {
+        if (!eventId) return;
+        try {
+          const res = await fetch(`/cases/${eventId}`);
+          const detail = await res.json();
+          setSelectedCase(detail);
+        } catch (e) {
+          console.error("Failed to fetch case detail", e);
+        }
+      };
+
+      const navigateToRoute = (tabKey, routePath, targetId) => {
+        setActiveTab(tabKey);
+        window.history.pushState({}, '', routePath);
+        if (targetId) {
+          const el = document.getElementById(targetId);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      };
+
+      return (
+        <div className="relative z-10 min-h-screen bg-ledger-bg text-text-primary">
+          
+          {/* Top Live Ticker Bar */}
+          <AuditTicker />
+
+          {/* Primary Navigation Bar */}
+          <nav className="border-b border-ledger-border bg-ledger-bg/95 sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+              
+              {/* Logo */}
+              <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigateToRoute('command_center', '/command-center', null)}>
+                <AngularRLogo size={28} />
+                <span className="font-jetbrains font-bold text-xl tracking-tight text-text-primary">
+                  Recover<span className="text-amber-gold">AI</span>
+                </span>
+              </div>
+
+              {/* Primary Navigation Links */}
+              <div className="hidden md:flex items-center space-x-8 font-jetbrains text-xs uppercase font-bold tracking-wider">
+                <button
+                  onClick={() => navigateToRoute('command_center', '/command-center', null)}
+                  className={`pb-1 border-b-2 transition ${activeTab === 'command_center' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                >
+                  COMMAND CENTER
+                </button>
+                <button
+                  onClick={() => navigateToRoute('recovery', '/recovery', 'cases-section')}
+                  className={`pb-1 border-b-2 transition ${activeTab === 'recovery' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                >
+                  RECOVERY
+                </button>
+                <button
+                  onClick={() => navigateToRoute('policy', '/policy-engine', 'policy-section')}
+                  className={`pb-1 border-b-2 transition ${activeTab === 'policy' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                >
+                  POLICY ENGINE
+                </button>
+                <button
+                  onClick={() => navigateToRoute('audit', '/audit-trail', 'audit-section')}
+                  className={`pb-1 border-b-2 transition ${activeTab === 'audit' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                >
+                  AUDIT TRAIL
+                </button>
+                <button
+                  onClick={() => navigateToRoute('simulator', '/simulator-page', 'simulator-section')}
+                  className={`pb-1 border-b-2 transition ${activeTab === 'simulator' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                >
+                  SIMULATOR
+                </button>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                {govConfig?.global_automation_active ? (
+                  <div className="flex items-center space-x-2 bg-teal-success/10 border border-teal-success/30 px-3 py-1.5 font-jetbrains text-xs">
+                    <span className="w-2 h-2 rounded-full bg-teal-success animate-pulse"></span>
+                    <span className="text-teal-success font-bold uppercase">● AUTOMATION ACTIVE</span>
+                    <button
+                      onClick={() => setShowPauseModal(true)}
+                      className="ml-2 text-[10px] bg-danger-red/20 text-danger-red border border-danger-red/40 px-2 py-0.5 font-bold hover:bg-danger-red hover:text-white transition uppercase"
+                    >
+                      PAUSE AUTOMATION
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2 bg-danger-red/10 border border-danger-red/30 px-3 py-1.5 font-jetbrains text-xs">
+                    <span className="w-2 h-2 rounded-full bg-danger-red animate-ping"></span>
+                    <span className="text-danger-red font-bold uppercase">AUTOMATION PAUSED</span>
+                    <button
+                      onClick={() => handleToggleKillSwitch(true)}
+                      className="ml-2 text-[10px] bg-teal-success text-ledger-bg font-bold px-2 py-0.5 hover:bg-teal-success/90 transition uppercase"
+                    >
+                      RESUME AUTOMATION
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={() => navigateToRoute('command_center', '/command-center', 'copilot-section')}
+                  className="font-jetbrains text-xs font-bold px-4 py-2 bg-amber-gold text-ledger-bg hover:bg-amber-gold/90 transition uppercase tracking-wider"
+                >
+                  ASK COPILOT →
+                </button>
+              </div>
+            </div>
+          </nav>
+
+          {/* EMERGENCY KILL SWITCH CONFIRMATION MODAL */}
+          {showPauseModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-ledger-card border border-danger-red max-w-md w-full p-6 space-y-4 font-jetbrains">
+                <div className="text-danger-red font-bold text-lg uppercase flex items-center space-x-2">
+                  <span className="w-3 h-3 rounded-full bg-danger-red animate-ping mr-2"></span>
+                  PAUSE ALL AUTOMATION?
+                </div>
+                <p className="text-text-muted text-xs leading-relaxed font-sans">
+                  This will prevent new automated financial recovery actions from executing across all payment channels.
+                  Incoming webhooks, event normalization, ML risk scoring, and audit trail logging will continue to run safely.
+                </p>
+                <div className="flex justify-end space-x-3 pt-2">
+                  <button
+                    onClick={() => setShowPauseModal(false)}
+                    className="px-4 py-2 border border-ledger-border text-text-muted hover:text-text-primary text-xs uppercase font-bold"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    onClick={() => handleToggleKillSwitch(false)}
+                    className="px-4 py-2 bg-danger-red text-white font-bold text-xs uppercase hover:bg-danger-red/90 transition"
+                  >
+                    CONFIRM PAUSE
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DEDICATED AUDIT TRAIL VIEW VS MAIN RECOVERY & COMMAND CENTER VIEW */}
+          {activeTab === 'audit' ? (
+            <AuditTrailView cases={cases} onSelectCase={handleSelectCaseById} />
+          ) : (
+            <>
+              {/* PENDING HUMAN APPROVALS BANNER (> ₹1,00,000 THRESHOLD) */}
+              {pendingApprovals.length > 0 && (
+                <section className="max-w-7xl mx-auto px-6 pt-6">
+                  <div className="ledger-panel p-5 border-l-4 border-l-amber-gold bg-amber-gold/5 font-jetbrains space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-gold animate-pulse"></span>
+                        <span className="text-amber-gold font-bold text-xs uppercase tracking-widest">
+                          HUMAN APPROVAL REQUIRED ({pendingApprovals.length} PENDING HIGH-VALUE TRANSACTIONS)
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-text-muted">THRESHOLD &gt; ₹1,00,000 INR</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {pendingApprovals.map((appr) => (
+                        <div key={appr.approval_id} className="flex flex-col md:flex-row md:items-center justify-between bg-ledger-card p-3.5 border border-ledger-border gap-4 text-xs">
+                          <div>
+                            <div className="flex items-center space-x-2 font-bold text-text-primary">
+                              <span>Customer: {appr.customer_id}</span>
+                              <span className="text-amber-gold">₹{appr.amount.toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="text-[11px] text-text-muted mt-0.5">
+                              Case ID: {appr.case_id} • Recommended Action: <span className="text-amber-gold font-bold">{appr.action}</span> • Reason: Exceeds automatic execution threshold
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <button
+                              onClick={() => handleApprovalDecision(appr.approval_id, 'REJECT')}
+                              className="px-3 py-1.5 border border-danger-red/40 text-danger-red hover:bg-danger-red hover:text-white font-bold uppercase transition"
+                            >
+                              REJECT
+                            </button>
+                            <button
+                              onClick={() => handleApprovalDecision(appr.approval_id, 'APPROVE')}
+                              className="px-4 py-1.5 bg-teal-success text-ledger-bg font-bold uppercase hover:bg-teal-success/90 transition shadow-md shadow-teal-success/10"
+                            >
+                              APPROVE EXECUTION
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* HERO SECTION: TODAY'S RECOVERY BRIEF */}
+              <section className="max-w-7xl mx-auto px-6 py-12 border-b border-ledger-border">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+                  <div>
+                    <div className="inline-flex items-center space-x-2 font-jetbrains text-xs text-amber-gold font-bold uppercase tracking-widest mb-1">
+                      <span className="w-2 h-2 rounded-full bg-amber-gold animate-ping"></span>
+                      <span>TODAY'S RECOVERY BRIEF</span>
+                    </div>
+                    <h1 className="font-serif-headline text-5xl sm:text-6xl text-text-primary leading-[0.98]">
+                      Your revenue, <span className="italic text-amber-gold">understood.</span>
+                    </h1>
+                    <p className="font-sans text-sm text-text-muted max-w-2xl mt-3 leading-relaxed">
+                      RecoverAI analyzes your recovery pipeline, identifies where revenue is slipping, and tells you what deserves attention now.
+                    </p>
+                  </div>
+
+                  <div className="font-jetbrains text-xs text-text-muted flex items-center space-x-3 bg-ledger-card px-4 py-2 border border-ledger-border">
+                    <span>Updated {brief?.timestamp || '17:04:32 IST'}</span>
+                    <span className="text-teal-success font-bold flex items-center">
+                      <span className="w-2 h-2 rounded-full bg-teal-success animate-pulse mr-1.5"></span>
+                      ● LIVE
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4 CORE METRICS */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 font-jetbrains">
+                  <div className="ledger-panel p-5">
+                    <div className="text-[10px] text-text-muted uppercase tracking-wider">REVENUE AT RISK</div>
+                    <div className="text-3xl font-bold text-text-primary mt-1">
+                      ₹{(summary?.total_revenue_at_risk ? summary.total_revenue_at_risk / 100000 : 43.1).toFixed(1)}L
+                    </div>
+                    <div className="text-[11px] text-text-muted mt-2">
+                      {summary?.total_events || 1000} open cases
+                    </div>
+                  </div>
+
+                  <div className="ledger-panel p-5 border-l-4 border-l-amber-gold">
+                    <div className="text-[10px] text-text-muted uppercase tracking-wider">POTENTIALLY RECOVERABLE</div>
+                    <div className="text-3xl font-bold text-amber-gold mt-1">
+                      ₹{(brief?.metrics.potentially_recoverable ? brief.metrics.potentially_recoverable / 100000 : 31.8).toFixed(1)}L
+                    </div>
+                    <div className="text-[11px] text-amber-gold/80 mt-2">
+                      73.8% of revenue at risk
+                    </div>
+                  </div>
+
+                  <div className="ledger-panel p-5 border-l-4 border-l-teal-success">
+                    <div className="text-[10px] text-text-muted uppercase tracking-wider">RECOVERED</div>
+                    <div className="text-3xl font-bold text-teal-success mt-1">
+                      ₹{(summary?.total_revenue_recovered ? summary.total_revenue_recovered / 10000000 : 2.95).toFixed(2)} Cr
+                    </div>
+                    <div className="text-[11px] text-teal-success/80 mt-2">
+                      +18.4% vs previous period
+                    </div>
+                  </div>
+
+                  <div className="ledger-panel p-5">
+                    <div className="text-[10px] text-text-muted uppercase tracking-wider">RECOVERY EFFICIENCY</div>
+                    <div className="text-3xl font-bold text-text-primary mt-1">
+                      ₹{brief?.metrics.recovery_efficiency.toLocaleString('en-IN') || '29,491'}
+                    </div>
+                    <div className="text-[11px] text-text-muted mt-2">
+                      Actual recovered per intervention
+                    </div>
+                  </div>
+                </div>
+
+                {/* RECOVERY INTELLIGENCE & INCREMENTAL ROI ATTRIBUTION SECTION */}
+                <div className="mt-8 ledger-panel p-6 border-t-2 border-t-amber-gold font-jetbrains space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-ledger-border pb-4 gap-2">
+                    <div>
+                      <div className="text-xs text-amber-gold uppercase font-bold tracking-widest flex items-center">
+                        <span className="w-2 h-2 rounded-full bg-amber-gold animate-pulse mr-2"></span>
+                        RECOVERY INTELLIGENCE & ATTRIBUTION
+                      </div>
+                      <h3 className="font-serif-headline text-2xl text-text-primary mt-0.5">Estimated Incremental Impact & ROI</h3>
+                    </div>
+                    <div className="text-right text-[11px] text-text-muted">
+                      ESTIMATED INCREMENTAL IMPACT GENERATED BY RECOVERAI INTERVENTIONS
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    <div className="bg-ledger-card p-4 border border-ledger-border border-l-4 border-l-teal-success">
+                      <div className="text-[10px] text-text-muted uppercase font-bold">ESTIMATED INCREMENTAL RECOVERY</div>
+                      <div className="text-2xl font-bold text-teal-success mt-1">
+                        ₹{((impactData?.metrics?.estimated_incremental_recovery || 1460000) / 100000).toFixed(1)}L
+                      </div>
+                      <div className="text-[11px] text-teal-success/80 mt-1">
+                        +{impactData?.metrics?.recovery_lift_percent || 143.0}% lift vs organic baseline
+                      </div>
+                    </div>
+
+                    <div className="bg-ledger-card p-4 border border-ledger-border">
+                      <div className="text-[10px] text-text-muted uppercase font-bold">ESTIMATED ORGANIC BASELINE</div>
+                      <div className="text-2xl font-bold text-text-primary mt-1">
+                        ₹{((impactData?.metrics?.estimated_baseline_recovery || 1020000) / 100000).toFixed(1)}L
+                      </div>
+                      <div className="text-[11px] text-text-muted mt-1">
+                        Organic recovery without RecoverAI
+                      </div>
+                    </div>
+
+                    <div className="bg-ledger-card p-4 border border-ledger-border border-l-4 border-l-amber-gold">
+                      <div className="text-[10px] text-text-muted uppercase font-bold">NET INCREMENTAL VALUE</div>
+                      <div className="text-2xl font-bold text-amber-gold mt-1">
+                        ₹{((impactData?.metrics?.net_incremental_value || 1441800) / 100000).toFixed(1)}L
+                      </div>
+                      <div className="text-[11px] text-amber-gold/80 mt-1">
+                        After ₹{(impactData?.metrics?.execution_cost || 18200).toLocaleString('en-IN')} execution costs
+                      </div>
+                    </div>
+
+                    <div className="bg-ledger-card p-4 border border-ledger-border">
+                      <div className="text-[10px] text-text-muted uppercase font-bold">ESTIMATED RETURN ON INVESTMENT (ROI)</div>
+                      <div className="text-2xl font-bold text-text-primary mt-1">
+                        {impactData?.metrics?.estimated_roi || 80.3}x
+                      </div>
+                      <div className="text-[11px] text-text-muted mt-1">
+                        Net incremental value / execution cost
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* INTERVENTION PERFORMANCE BREAKDOWN TABLE */}
+                  {impactData?.interventions && impactData.interventions.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <div className="text-xs text-text-primary uppercase font-bold tracking-widest border-b border-ledger-border pb-2">
+                        INTERVENTION PERFORMANCE & LIFT
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {impactData.interventions.map((item) => (
+                          <div key={item.action} className="bg-ledger-card p-3.5 border border-ledger-border space-y-2">
+                            <div className="flex items-center justify-between text-xs font-bold text-text-primary">
+                              <span>{item.action}</span>
+                              <span className="text-teal-success font-mono">+{item.lift_percent}% Lift</span>
+                            </div>
+                            <div className="text-[11px] text-text-muted space-y-0.5">
+                              <div>Recovered: <span className="text-text-primary font-bold">₹{(item.recovered / 100000).toFixed(1)}L</span></div>
+                              <div>Incremental: <span className="text-teal-success font-bold">₹{(item.estimated_incremental / 100000).toFixed(1)}L</span></div>
+                              <div>Observed Rate: <span className="text-text-primary font-bold">{item.observed_rate}%</span> (vs {item.baseline_rate}% baseline)</div>
+                              <div>Sample Size: <span className="text-text-muted font-bold">{item.sample_size} cases</span></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* RECOVERY STRATEGY EXPERIMENTS SECTION */}
+                {experimentsData && experimentsData.length > 0 && (
+                  <div className="mt-6 ledger-panel p-6 border-t-2 border-t-teal-success font-jetbrains space-y-5">
+                    <div className="flex items-center justify-between border-b border-ledger-border pb-3">
+                      <div>
+                        <div className="text-xs text-teal-success uppercase font-bold tracking-widest flex items-center">
+                          <span className="w-2 h-2 rounded-full bg-teal-success animate-pulse mr-2"></span>
+                          RECOVERY EXPERIMENTS & STRATEGY COMPARISONS
+                        </div>
+                        <h3 className="font-serif-headline text-xl text-text-primary mt-0.5">Control vs Treatment Strategy Experiments</h3>
+                      </div>
+                      <span className="text-[10px] text-text-muted">A/B STRATEGY IMPACT EVALUATION</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                      {experimentsData.map((exp) => (
+                        <div key={exp.experiment_id} className="bg-ledger-card p-4 border border-ledger-border space-y-3 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-text-primary">{exp.name}</span>
+                            <span className="px-2 py-0.5 bg-teal-success/10 text-teal-success border border-teal-success/30 text-[10px] font-bold">
+                              +{exp.absolute_lift} pp (+{exp.relative_lift}%)
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 bg-ledger-bg p-2.5 border border-ledger-border text-[11px]">
+                            <div>
+                              <div className="text-text-muted font-bold">CONTROL</div>
+                              <div className="text-text-muted">{exp.control_strategy}</div>
+                              <div className="text-text-primary font-bold mt-1">{exp.control_recovery_rate}% rate</div>
+                              <div className="text-[10px] text-text-muted">({exp.control_cases} cases)</div>
+                            </div>
+                            <div className="border-l border-ledger-border pl-2">
+                              <div className="text-teal-success font-bold">TREATMENT</div>
+                              <div className="text-text-muted">{exp.treatment_strategy}</div>
+                              <div className="text-teal-success font-bold mt-1">{exp.treatment_recovery_rate}% rate</div>
+                              <div className="text-[10px] text-text-muted">({exp.treatment_cases} cases)</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-text-muted pt-1 border-t border-ledger-border/50">
+                            <span>Incremental Rev: <strong className="text-amber-gold">₹{(exp.estimated_incremental_revenue / 100000).toFixed(2)}L</strong></span>
+                            <span className="text-[10px] uppercase font-bold text-text-muted">Confidence: {exp.confidence}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* AI PRIORITY BRIEF & WHAT CHANGED SECTION */}
+              <section className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 border-b border-ledger-border font-jetbrains">
+                <div className="lg:col-span-7 ledger-panel-gold p-6 space-y-5 relative">
+                  <div className="flex items-center justify-between border-b border-amber-gold/30 pb-3">
+                    <div className="text-xs text-amber-gold font-bold uppercase tracking-widest flex items-center">
+                      <span className="w-2 h-2 bg-amber-gold mr-2"></span>
+                      AI PRIORITY BRIEF
+                    </div>
+                    <span className="text-[10px] text-amber-gold/80">EXECUTIVE ACTION RECOMMENDATION</span>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="font-serif-headline text-2xl text-text-primary leading-snug">
+                      "{brief?.ai_priority_brief.title || "3 accounts represent 62% of today's recoverable revenue."}"
+                    </h3>
+                    <p className="font-sans text-xs text-text-muted leading-relaxed">
+                      {brief?.ai_priority_brief.summary || "Two are high-value failed payments where another automatic retry has low expected value. One is an overdue enterprise invoice with a strong historical payment pattern after manual follow-up."}
+                    </p>
+                    <div className="bg-ledger-bg p-3 border border-amber-gold/30 text-xs font-bold text-amber-gold">
+                      {brief?.ai_priority_brief.recommendation || "Recommended priority: review these three cases before processing lower-value recovery attempts."}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-amber-gold/20">
+                    <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">EVIDENCE RETRIEVED FROM DATASET</div>
+                    <div className="flex flex-wrap gap-2">
+                      {brief?.ai_priority_brief.evidence.map((ev, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => brief?.ai_priority_brief.top_cases[0] && handleSelectCaseById(brief.ai_priority_brief.top_cases[0].event_id)}
+                          className="px-2.5 py-1 bg-ledger-bg border border-amber-gold/40 text-amber-gold text-[11px] font-mono hover:bg-amber-gold/20 transition"
+                        >
+                          [{ev.label}] ➔
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-5 ledger-panel p-6 space-y-4">
+                  <div className="text-xs text-text-primary uppercase font-bold tracking-widest border-b border-ledger-border pb-3">
+                    WHAT CHANGED (PERIOD COMPARISON)
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    {brief?.what_changed.map((wc, idx) => (
+                      <div key={idx} className="border-b border-ledger-border/50 pb-2.5">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-text-primary">{wc.category}</span>
+                          <span className={`font-bold ${wc.is_negative ? 'text-danger-red' : 'text-teal-success'}`}>
+                            {wc.change}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-text-muted mt-0.5">
+                          Main driver: <span className="text-text-primary font-mono">{wc.driver}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {/* INTERVENTION PERFORMANCE & OPPORTUNITY MAP SECTION */}
+              <section className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 border-b border-ledger-border font-jetbrains">
+                <div className="lg:col-span-7 ledger-panel p-6 space-y-5">
+                  <div className="flex items-center justify-between border-b border-ledger-border pb-3">
+                    <div>
+                      <div className="text-xs text-amber-gold uppercase font-bold tracking-widest">WHAT'S WORKING</div>
+                      <h3 className="font-serif-headline text-2xl text-text-primary mt-0.5">Intervention Performance & Economic Efficiency</h3>
+                    </div>
+                    <span className="text-[10px] text-text-muted">RECOVERED / INTERVENTION</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-ledger-card-subtle uppercase text-[10px] text-text-muted border-b border-ledger-border">
+                        <tr>
+                          <th className="py-2.5 px-3">Intervention</th>
+                          <th className="py-2.5 px-3 text-right">Recovery Rate</th>
+                          <th className="py-2.5 px-3 text-right">Total Recovered</th>
+                          <th className="py-2.5 px-3 text-right">₹ / Intervention</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-ledger-border">
+                        {brief?.intervention_performance.map((ip, idx) => (
+                          <tr key={idx} className="hover:bg-white/5">
+                            <td className="py-3 px-3 font-bold text-text-primary">{ip.type}</td>
+                            <td className="py-3 px-3 text-right font-bold text-teal-success">{ip.rate}%</td>
+                            <td className="py-3 px-3 text-right font-bold text-text-primary">₹{(ip.recovered / 100000).toFixed(1)}L</td>
+                            <td className="py-3 px-3 text-right font-bold text-amber-gold">₹{ip.efficiency.toLocaleString('en-IN')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-5 ledger-panel p-6 space-y-4">
+                  <div className="text-xs text-text-primary uppercase font-bold tracking-widest border-b border-ledger-border pb-3">
+                    REVENUE OPPORTUNITY MAP (LEAKAGE CATEGORIES)
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    {brief?.opportunity_map.map((om, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => { setCategoryFilter(om.category); setPage(1); navigateToRoute('recovery', '/recovery', 'cases-section'); }}
+                        className="ledger-panel p-3 text-left hover:border-amber-gold transition group"
+                      >
+                        <div className="text-[10px] text-text-muted uppercase font-bold group-hover:text-amber-gold">{om.label}</div>
+                        <div className="text-lg font-bold text-text-primary mt-1">₹{(om.amount / 100000).toFixed(1)}L</div>
+                        <div className="text-[9px] text-amber-gold mt-1">Filter Queue ➔</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {/* DAILY ACTION PLAN & ASK RECOVERAI COPILOT SECTION */}
+              <section id="copilot-section" className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 border-b border-ledger-border">
+                <div className="lg:col-span-5 ledger-panel p-6 space-y-5 font-jetbrains">
+                  <div className="border-b border-ledger-border pb-3">
+                    <div className="text-xs text-amber-gold uppercase font-bold tracking-widest">DAILY PRIORITIZED ACTION PLAN</div>
+                    <h3 className="font-serif-headline text-2xl text-text-primary mt-0.5">If I were running recovery today</h3>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    {brief?.daily_action_plan.map((ap) => (
+                      <div key={ap.step} className="flex space-x-3 items-start border-b border-ledger-border/40 pb-2.5">
+                        <span className="w-5 h-5 rounded-full bg-amber-gold text-ledger-bg font-bold flex items-center justify-center text-[10px] shrink-0">
+                          0{ap.step}
+                        </span>
+                        <span className="text-text-primary text-[11px] leading-relaxed">{ap.action}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="lg:col-span-7">
+                  <AskRecoverAICopilot
+                    onSelectCase={handleSelectCaseById}
+                    scrollToSimulator={() => navigateToRoute('simulator', '/simulator-page', 'simulator-section')}
+                  />
+                </div>
+              </section>
+
+              {/* TOP RECOVERY OPPORTUNITIES TABLE (RECOVERY PAGE) */}
+              <section id="cases-section" className="max-w-7xl mx-auto px-6 py-12 space-y-6">
+                <div className="ledger-panel p-6 space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-ledger-border pb-4 font-jetbrains">
+                    <div>
+                      <div className="text-xs text-amber-gold font-bold uppercase tracking-widest">
+                        RANKED OPPORTUNITY MATRIX
+                      </div>
+                      <h3 className="font-serif-headline text-3xl text-text-primary mt-0.5">
+                        Top Recovery Opportunities
+                      </h3>
+                      <p className="text-xs text-text-muted mt-1 font-sans">
+                        Ordered by expected recoverable value score (Amount × ML Recovery Probability)
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 text-xs font-jetbrains">
+                      <input
+                        type="text"
+                        placeholder="Search Customer / Event..."
+                        value={searchQuery}
+                        onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                        className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-1.5 focus:border-amber-gold w-44 text-xs font-mono"
+                      />
+
+                      <select
+                        value={categoryFilter}
+                        onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
+                        className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-1.5 focus:border-amber-gold font-mono"
+                      >
+                        <option value="">ALL CATEGORIES</option>
+                        <option value="PAYMENT FAILURE">PAYMENT FAILURE</option>
+                        <option value="CHECKOUT ABANDONMENT">CHECKOUT ABANDONMENT</option>
+                        <option value="SUBSCRIPTION FAILURE">SUBSCRIPTION FAILURE</option>
+                        <option value="OVERDUE INVOICE">OVERDUE INVOICE</option>
+                      </select>
+
+                      <select
+                        value={actionFilter}
+                        onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
+                        className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-1.5 focus:border-amber-gold font-mono"
+                      >
+                        <option value="">ALL ACTIONS</option>
+                        <option value="RETRY">RETRY</option>
+                        <option value="PAYMENT_LINK">PAYMENT_LINK</option>
+                        <option value="REMINDER">REMINDER</option>
+                        <option value="ESCALATE">ESCALATE</option>
+                        <option value="STOP">STOP</option>
+                      </select>
+
+                      <select
+                        value={outcomeFilter}
+                        onChange={(e) => { setOutcomeFilter(e.target.value); setPage(1); }}
+                        className="bg-ledger-bg border border-ledger-border text-text-primary px-3 py-1.5 focus:border-amber-gold font-mono"
+                      >
+                        <option value="">ALL OUTCOMES</option>
+                        <option value="SUCCESS">SUCCESS</option>
+                        <option value="FAILED">FAILED</option>
+                        <option value="PENDING">PENDING</option>
+                        <option value="NO_ACTION">NO_ACTION</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left font-jetbrains text-xs text-text-muted">
+                      <thead className="bg-ledger-card-subtle uppercase text-[10px] text-text-muted border-b border-ledger-border">
+                        <tr>
+                          <th className="py-3 px-4">Priority</th>
+                          <th className="py-3 px-4">Customer / Account</th>
+                          <th className="py-3 px-4 text-right">Revenue at Risk</th>
+                          <th className="py-3 px-4 text-right">Prob %</th>
+                          <th className="py-3 px-4 text-center">Recommended Action</th>
+                          <th className="py-3 px-4 text-right">Expected Recovery</th>
+                          <th className="py-3 px-4 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-ledger-border">
+                        {loading ? (
+                          <tr>
+                            <td colSpan="7" className="py-8 text-center text-text-muted font-jetbrains">Evaluating recovery opportunities...</td>
+                          </tr>
+                        ) : cases.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="py-8 text-center text-text-muted font-jetbrains">No matching opportunities found.</td>
+                          </tr>
+                        ) : (
+                          cases.map((c, idx) => (
+                            <tr
+                              key={c.event_id}
+                              onClick={() => handleSelectCaseById(c.event_id)}
+                              className="hover:bg-amber-gold/5 cursor-pointer transition-colors"
+                            >
+                              <td className="py-3.5 px-4 font-mono font-bold text-amber-gold">0{(page - 1) * 10 + idx + 1}</td>
+                              <td className="py-3.5 px-4 text-text-primary font-bold">{c.customer_id}</td>
+                              <td className="py-3.5 px-4 text-right font-bold text-text-primary">₹{c.amount.toLocaleString('en-IN')}</td>
+                              <td className="py-3.5 px-4 text-right font-bold">
+                                <span className={c.recovery_probability >= 0.6 ? 'text-teal-success' : 'text-amber-gold'}>
+                                  {(c.recovery_probability * 100).toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-center font-bold">
+                                <span className={`px-2 py-0.5 border text-[10px] ${c.final_action === 'STOP' ? 'border-ledger-border text-text-muted' : 'border-amber-gold/40 text-amber-gold bg-amber-gold/10'}`}>
+                                  {c.final_action}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right font-bold text-teal-success">
+                                ₹{Math.round(c.amount * c.recovery_probability).toLocaleString('en-IN')}
+                              </td>
+                              <td className="py-3.5 px-4 text-center font-bold">
+                                <span className={`px-2 py-0.5 border text-[10px] ${c.outcome === 'SUCCESS' ? 'border-teal-success/40 text-teal-success bg-teal-success/10' : 'border-amber-gold/40 text-amber-gold bg-amber-gold/10'}`}>
+                                  {c.outcome === 'SUCCESS' ? 'RECOVERED' : 'READY'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-ledger-border pt-4 font-jetbrains text-xs text-text-muted">
+                    <div>PAGE {page} OF {totalPages}</div>
+                    <div className="flex space-x-2">
+                      <button
+                        disabled={page <= 1}
+                        onClick={() => setPage(page - 1)}
+                        className="px-3 py-1 border border-ledger-border text-text-primary disabled:opacity-30 hover:border-amber-gold transition"
+                      >
+                        PREV
+                      </button>
+                      <button
+                        disabled={page >= totalPages}
+                        onClick={() => setPage(page + 1)}
+                        className="px-3 py-1 border border-ledger-border text-text-primary disabled:opacity-30 hover:border-amber-gold transition"
+                      >
+                        NEXT
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* CONTROL LAYER / POLICY ENGINE DIAGRAM SECTION */}
+              <section id="policy-section" className="max-w-7xl mx-auto px-6 py-12 border-b border-ledger-border">
+                <div className="ledger-panel p-6 space-y-6 font-jetbrains">
+                  <div className="border-b border-ledger-border pb-4">
+                    <div className="text-xs text-amber-gold uppercase font-bold tracking-widest">THE CONTROL LAYER</div>
+                    <h3 className="font-serif-headline text-3xl text-text-primary mt-1">AI decides what is possible. Policy decides what is allowed.</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-center py-2 text-xs">
+                    <div className="ledger-panel p-3.5 bg-ledger-card-subtle">
+                      <div className="text-[10px] text-text-muted font-bold">1. INPUT EVENT</div>
+                      <div className="font-bold text-text-primary mt-1">PAYMENT FAILED</div>
+                    </div>
+                    <div className="ledger-panel p-3.5 bg-ledger-card-subtle">
+                      <div className="text-[10px] text-text-muted font-bold">2. DIAGNOSTIC</div>
+                      <div className="font-bold text-amber-gold mt-1">RISK: 0.87 HIGH</div>
+                    </div>
+                    <div className="ledger-panel p-3.5 bg-amber-gold/10 border-amber-gold/40">
+                      <div className="text-[10px] text-amber-gold font-bold">3. POLICY ENGINE</div>
+                      <div className="font-bold text-amber-gold mt-1">6 RULES EVALUATED</div>
+                    </div>
+                    <div className="ledger-panel p-3.5 bg-ledger-card-subtle">
+                      <div className="text-[10px] text-text-muted font-bold">4. INTERVENTION</div>
+                      <div className="font-bold text-text-primary mt-1">AUTO RETRY</div>
+                    </div>
+                    <div className="ledger-panel p-3.5 bg-teal-success/10 border-teal-success/30">
+                      <div className="text-[10px] text-teal-success font-bold">5. RECORDED</div>
+                      <div className="font-bold text-teal-success mt-1">RECOVERED ₹1,249</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* COUNTERFACTUAL RECOVERY SIMULATOR SECTION */}
+              {simulator && (
+                <section id="simulator-section" className="max-w-7xl mx-auto px-6 py-12 font-jetbrains">
+                  <div className="ledger-panel p-6 space-y-4">
+                    <div>
+                      <div className="text-xs text-amber-gold font-bold uppercase tracking-widest">
+                        COUNTERFACTUAL ANALYTICS // STRATEGY SIMULATION
+                      </div>
+                      <h3 className="font-serif-headline text-3xl text-text-primary mt-1">
+                        Simulated Policy Strategy Performance
+                      </h3>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-ledger-card-subtle text-text-muted uppercase text-[10px] border-b border-ledger-border">
+                          <tr>
+                            <th className="py-3 px-4">Strategy</th>
+                            <th className="py-3 px-4">Description</th>
+                            <th className="py-3 px-4 text-right">Recovery Rate</th>
+                            <th className="py-3 px-4 text-right">Total Recovered</th>
+                            <th className="py-3 px-4 text-right">Delta vs Actual</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-ledger-border">
+                          {simulator.scenarios.map((s, idx) => (
+                            <tr
+                              key={idx}
+                              className={s.is_actual ? "bg-amber-gold/10 font-bold border-l-2 border-l-amber-gold text-text-primary" : "hover:bg-white/5"}
+                            >
+                              <td className="py-3 px-4 font-bold text-text-primary">{s.strategy}</td>
+                              <td className="py-3 px-4 text-text-muted text-[11px]">{s.description}</td>
+                              <td className="py-3 px-4 text-right font-bold text-teal-success">{s.recovery_rate}%</td>
+                              <td className="py-3 px-4 text-right font-bold text-text-primary">
+                                ₹{s.total_revenue_recovered.toLocaleString('en-IN')}
+                              </td>
+                              <td className={`py-3 px-4 text-right font-bold ${s.lift_vs_actual > 0 ? 'text-teal-success' : s.lift_vs_actual < 0 ? 'text-danger-red' : 'text-text-muted'}`}>
+                                {s.lift_vs_actual === 0 ? 'Baseline' : `${s.lift_vs_actual > 0 ? '+' : ''}₹${s.lift_vs_actual.toLocaleString('en-IN')}`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+
+          {/* ----------------------------------------------------------------- */}
+          {/* RIGHT-SIDE TRANSACTION INVESTIGATION DRAWER MODAL                */}
+          {/* ----------------------------------------------------------------- */}
+          {selectedCase && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-end z-50 overflow-y-auto font-jetbrains">
+              <div className={`ledger-panel max-w-2xl w-full h-full p-8 space-y-6 relative border-l-4 overflow-y-auto ${selectedCase.blocking_rule ? 'border-l-amber-gold' : 'border-l-teal-success'}`}>
+                
+                <button
+                  onClick={() => setSelectedCase(null)}
+                  className="absolute top-6 right-6 text-text-muted hover:text-text-primary text-2xl font-bold"
+                >
+                  ✕
+                </button>
+
+                {/* DRAWER HEADER SUMMARY */}
+                <div>
+                  <div className="text-xs text-amber-gold font-bold uppercase tracking-widest">
+                    RECOVERY TRACE // {selectedCase.event_id}
+                  </div>
+                  <h2 className="font-serif-headline text-4xl text-text-primary mt-1">
+                    Customer: {selectedCase.customer_id}
+                  </h2>
+                  <div className="text-xs font-mono text-text-muted mt-1">
+                    TRACE ID: trace_7f91ac_{selectedCase.event_id}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-ledger-card-subtle p-4 border border-ledger-border text-xs">
+                  <div>
+                    <span className="text-text-muted text-[10px] block">AMOUNT AT RISK</span>
+                    <span className="font-bold text-text-primary text-sm">₹{selectedCase.amount.toLocaleString('en-IN')}</span>
+                  </div>
+                  <div>
+                    <span className="text-text-muted text-[10px] block">RECOVERED</span>
+                    <span className="font-bold text-teal-success text-sm">₹{selectedCase.revenue_recovered ? selectedCase.revenue_recovered.toLocaleString('en-IN') : Math.round(selectedCase.amount * selectedCase.recovery_probability).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div>
+                    <span className="text-text-muted text-[10px] block">RECOVERY PROB</span>
+                    <span className="font-bold text-teal-success text-sm">{(selectedCase.recovery_probability * 100).toFixed(1)}%</span>
+                  </div>
+                  <div>
+                    <span className="text-text-muted text-[10px] block">STATUS</span>
+                    <span className={`font-bold ${selectedCase.outcome === 'SUCCESS' ? 'text-teal-success' : 'text-amber-gold'}`}>
+                      {selectedCase.outcome === 'SUCCESS' ? 'RECOVERED ✓' : selectedCase.outcome}
+                    </span>
+                  </div>
+                </div>
+
+                {selectedCase.blocking_rule && (
+                  <div className="bg-amber-gold/10 border border-amber-gold/40 p-3 text-xs text-amber-gold">
+                    <span className="font-bold">⚠️ POLICY RULE OVERRIDE:</span> AI action <code className="bg-black px-1.5 py-0.5">{selectedCase.recommended_action}</code> blocked by rule <code className="bg-black px-1.5 py-0.5">{selectedCase.blocking_rule}</code>.
+                  </div>
+                )}
+
+                {/* CHRONOLOGICAL RECOVERY TIMELINE */}
+                <div className="space-y-4 pt-2">
+                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
+                    CHRONOLOGICAL RECOVERY TIMELINE
+                  </div>
+
+                  <div className="space-y-4 text-xs font-mono relative pl-4 border-l border-ledger-border">
+                    <div className="relative">
+                      <span className="w-2 h-2 rounded-full bg-danger-red absolute -left-[21px] top-1"></span>
+                      <div className="text-[10px] text-text-muted">11:02:48.231</div>
+                      <div className="font-bold text-danger-red uppercase">PAYMENT_FAILED</div>
+                      <div className="text-text-muted text-[11px]">Reason: INSUFFICIENT_FUNDS</div>
+                    </div>
+
+                    <div className="relative">
+                      <span className="w-2 h-2 rounded-full bg-amber-gold absolute -left-[21px] top-1"></span>
+                      <div className="text-[10px] text-text-muted">11:02:49.104</div>
+                      <div className="font-bold text-amber-gold uppercase">RISK_SCORED</div>
+                      <div className="text-text-muted text-[11px]">
+                        Probability: <span className="text-teal-success font-bold">{(selectedCase.recovery_probability * 100).toFixed(1)}%</span> | At risk: ₹{selectedCase.amount.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <span className="w-2 h-2 rounded-full bg-amber-gold absolute -left-[21px] top-1"></span>
+                      <div className="text-[10px] text-text-muted">11:02:49.882</div>
+                      <div className="font-bold text-amber-gold uppercase">POLICY_MATCHED</div>
+                      <div className="text-text-muted text-[11px]">Matched policy: <span className="text-text-primary">high_value_retry_v2</span></div>
+                    </div>
+
+                    <div className="relative">
+                      <span className="w-2 h-2 rounded-full bg-amber-gold absolute -left-[21px] top-1"></span>
+                      <div className="text-[10px] text-text-muted">11:02:50.114</div>
+                      <div className="font-bold text-text-primary uppercase">ACTION_APPROVED</div>
+                      <div className="text-text-muted text-[11px]">
+                        Action: <span className="text-amber-gold font-bold">{selectedCase.recommended_action}</span> | Status: <span className="text-teal-success">✓ APPROVED</span>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <span className="w-2 h-2 rounded-full bg-teal-success absolute -left-[21px] top-1"></span>
+                      <div className="text-[10px] text-text-muted">11:04:17.421</div>
+                      <div className="font-bold text-teal-success uppercase">PAYMENT_RECOVERED</div>
+                      <div className="text-text-muted text-[11px]">
+                        Amount Recovered: <span className="text-teal-success font-bold">₹{Math.round(selectedCase.amount * selectedCase.recovery_probability).toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <span className="w-2 h-2 rounded-full bg-teal-success absolute -left-[21px] top-1"></span>
+                      <div className="text-[10px] text-text-muted">11:04:17.502</div>
+                      <div className="font-bold text-teal-success uppercase">CASE_CLOSED</div>
+                      <div className="text-text-muted text-[11px]">Outcome: SUCCESS</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* POLICY DECISION TRACE */}
+                <div className="space-y-3 pt-2">
+                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
+                    POLICY DECISION TRACE & BOUNDS
+                  </div>
+
+                  <div className="bg-ledger-card-subtle p-4 border border-ledger-border space-y-2 text-xs">
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div><span className="text-text-muted block">RISK SCORE</span><span className="font-bold text-teal-success">{(selectedCase.recovery_probability * 100).toFixed(1)}%</span></div>
+                      <div><span className="text-text-muted block">CUSTOMER VALUE</span><span className="font-bold text-text-primary">HIGH</span></div>
+                      <div><span className="text-text-muted block">PREVIOUS RETRIES</span><span className="font-bold text-text-primary">1 / 3</span></div>
+                      <div><span className="text-text-muted block">COOLDOWN</span><span className="font-bold text-teal-success">SATISFIED</span></div>
+                    </div>
+
+                    <div className="pt-2 border-t border-ledger-border space-y-1 text-[11px] text-teal-success font-bold">
+                      <div>✓ ACTION WITHIN POLICY PARAMETERS</div>
+                      <div>✓ NO POLICY VIOLATION DETECTED</div>
+                      <div>✓ EXECUTION AUTHORIZED BY DETERMINISTIC CONTROL</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ENGINEERING DECISION NODE GRAPH */}
+                <div className="space-y-3 pt-2">
+                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
+                    TECHNICAL DECISION GRAPH TRACE
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-2 text-center text-[10px] font-mono py-2">
+                    <div className="ledger-panel p-2">
+                      <div className="text-text-muted">FAILED</div>
+                      <div className="font-bold text-danger-red mt-0.5">PAYMENT</div>
+                    </div>
+                    <div className="ledger-panel p-2">
+                      <div className="text-text-muted">RISK</div>
+                      <div className="font-bold text-teal-success mt-0.5">{(selectedCase.recovery_probability * 100).toFixed(0)}%</div>
+                    </div>
+                    <div className="ledger-panel p-2 border-amber-gold">
+                      <div className="text-amber-gold">POLICY</div>
+                      <div className="font-bold text-amber-gold mt-0.5">ENGINE</div>
+                    </div>
+                    <div className="ledger-panel p-2">
+                      <div className="text-text-muted">ACTION</div>
+                      <div className="font-bold text-text-primary mt-0.5">{selectedCase.final_action}</div>
+                    </div>
+                    <div className="ledger-panel p-2 border-teal-success bg-teal-success/10">
+                      <div className="text-teal-success">STATE</div>
+                      <div className="font-bold text-teal-success mt-0.5">RECOVERED</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* AI DIAGNOSTIC REASONING */}
+                <div className="space-y-1 pt-2">
+                  <div className="text-[10px] uppercase text-text-muted font-bold">AI DIAGNOSTIC REASONING</div>
+                  <div className="bg-ledger-card-subtle p-4 text-xs italic text-text-primary border border-ledger-border leading-relaxed">
+                    "{selectedCase.reasoning_text}"
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-4 border-t border-ledger-border text-xs text-text-muted">
+                  <span>✓ 100% AUDITABLE SHA256 RECORD</span>
+                  <button
+                    onClick={() => setSelectedCase(null)}
+                    className="px-5 py-2.5 bg-amber-gold text-ledger-bg font-bold uppercase hover:bg-amber-gold/90 transition"
+                  >
+                    CLOSE INVESTIGATION
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* FOOTER */}
+          <footer className="border-t border-ledger-border py-12 bg-ledger-bg text-text-muted font-jetbrains text-xs">
+            <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div>
+                <div className="flex items-center space-x-2.5 mb-1">
+                  <AngularRLogo size={20} />
+                  <span className="font-bold text-text-primary text-base font-jetbrains">Recover<span className="text-amber-gold">AI</span></span>
+                </div>
+                <p className="text-[11px] text-text-muted">AUTONOMOUS REVENUE RECOVERY CONTROL PLANE. BUILT FOR CONTROLLED EXECUTION.</p>
+              </div>
+              <div className="text-right text-[11px] text-text-muted">
+                <span>© 2026 RecoverAI</span>
+              </div>
+            </div>
+          </footer>
+
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>

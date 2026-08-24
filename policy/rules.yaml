@@ -1,0 +1,40 @@
+# =============================================================================
+# RecoverAI - Payment Recovery Policy Rules & Guardrails Config (Phase 1)
+# =============================================================================
+# This YAML file defines operational boundaries, business constraints, and
+# regulatory safety guardrails that govern the AI recovery agent's decisions.
+# =============================================================================
+
+# Maximum automated retry attempts allowed before stopping auto-retry.
+# Real-world constraint: Card networks (Visa/Mastercard) enforce strict retry limits
+# (e.g. max 3 retries in 30 days). Excessive retries lead to card network fines,
+# processor account suspension, and elevated interchange fees.
+max_retry_attempts: 3
+
+# Cooldown period (in minutes) required between consecutive retry attempts.
+# Real-world constraint: Bank fraud detection engines and gateway velocity filters
+# automatically flag and block rapid back-to-back charges on the same card within
+# short time windows.
+retry_cooldown_minutes: 30
+
+# Attempt threshold at which an automated recovery pipeline escalates to human intervention
+# or sends a payment link with customer support contact options.
+# Real-world constraint: Operational cost optimization and fraud containment. If 3 automated
+# retries fail, repeating auto-retry has diminishing returns (<5% success) and risks annoying the user.
+escalation_after_failed_attempts: 4
+
+# Transaction amount in INR (₹) above which automated retry is replaced or supplemented by sending
+# an explicit payment link requiring 2FA / OTP authentication.
+# Real-world constraint: RBI (Reserve Bank of India) mandate on Additional Factor of Authentication (AFA)
+# for high-value transactions, plus customer trust for large sums. Card auto-retries often fail above threshold.
+payment_link_threshold_amount: 20000
+
+# Minimum ML-predicted recovery probability required to justify executing a recovery action.
+# Real-world constraint: Unit economics and merchant reputation. If probability < 0.20 (20%),
+# the cost of SMS/WhatsApp API dispatches + gateway fees + customer harassment risk outweighs expected recovery value.
+stop_if_recovery_probability_below: 0.20
+
+# Maximum number of customer outreach communications (SMS, WhatsApp, Email, Push) allowed per 24 hours.
+# Real-world constraint: TRAI anti-spam regulations (Telecom Regulatory Authority of India) and
+# brand protection rules to prevent customer fatigue, opt-outs, and complaints.
+max_daily_contact_attempts_per_customer: 2
