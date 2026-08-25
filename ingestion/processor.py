@@ -11,11 +11,12 @@ from typing import Dict, Any, Optional
 from schema.webhook_schema import NormalizedWebhookEvent
 from schema.event_schema import RevenueEvent, CustomerHistorySummary
 from policy.policy_engine import evaluate_policy
-from policy.governance import evaluate_governance
+from policy.governance import evaluate_governance, record_governance_audit
+from execution.idempotency import execute_action_idempotent, ensure_action_executions_table_exists
 
 
 def ensure_webhook_tables_exist(db_path: str = "data/recover_ai.db") -> None:
-    """Ensures webhook_events table exists in SQLite database."""
+    """Ensures webhook_events table exists in SQLite database with UNIQUE event_id constraint."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("""
@@ -35,7 +36,8 @@ def ensure_webhook_tables_exist(db_path: str = "data/recover_ai.db") -> None:
             processing_status TEXT,
             processed_at TEXT,
             error_message TEXT,
-            raw_payload TEXT
+            raw_payload TEXT,
+            UNIQUE(source, event_id)
         );
     """)
     conn.commit()
@@ -54,22 +56,26 @@ def persist_webhook_event(
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        INSERT OR REPLACE INTO webhook_events (
-            event_id, source, source_event, event_type, payment_id, order_id,
-            amount, currency, customer_reference, occurred_at, received_at,
-            processing_status, error_message, raw_payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-    """, (
-        event.event_id, event.source, event.source_event, event.event_type,
-        event.payment_id, event.order_id, event.amount, event.currency,
-        event.customer_reference, event.occurred_at, event.received_at,
-        event.processing_status, event.error_message,
-        json.dumps(raw_payload) if raw_payload else None
-    ))
-
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("""
+            INSERT INTO webhook_events (
+                event_id, source, source_event, event_type, payment_id, order_id,
+                amount, currency, customer_reference, occurred_at, received_at,
+                processing_status, error_message, raw_payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (
+            event.event_id, event.source, event.source_event, event.event_type,
+            event.payment_id, event.order_id, event.amount, event.currency,
+            event.customer_reference, event.occurred_at, event.received_at,
+            event.processing_status or "PROCESSING", event.error_message,
+            json.dumps(raw_payload) if raw_payload else None
+        ))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # Event ID already exists -> update received timestamp or keep existing
+        pass
+    finally:
+        conn.close()
 
 
 def update_webhook_status(
@@ -99,12 +105,55 @@ def process_incoming_webhook_event(
 ) -> Dict[str, Any]:
     """
     Processes an ingested webhook event through the RecoverAI pipeline:
-    1. Evaluates event type relevance.
+    1. Evaluates event type relevance and idempotency deduplication.
     2. For payment.failed: creates/updates revenue recovery case, scores risk, evaluates policy rules.
-    3. For payment.captured/paid: updates case outcome to SUCCESS.
-    4. Updates webhook_events processing status to PROCESSED / IGNORED.
+    3. Tracks action idempotency record for executed actions.
+    4. For payment.captured/paid: updates case outcome to SUCCESS.
+    5. Updates webhook_events processing status to PROCESSED / IGNORED.
     """
     ensure_webhook_tables_exist(db_path)
+    ensure_action_executions_table_exists(db_path)
+
+    # 0. Deduplication & Idempotency Check
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM webhook_events WHERE event_id = ?;", (event.event_id,))
+    existing = cursor.fetchone()
+
+    if existing:
+        ex_dict = dict(existing)
+        status_val = ex_dict.get("processing_status")
+        if status_val == "PROCESSED":
+            conn.close()
+            record_governance_audit(
+                event_type="DUPLICATE_WEBHOOK_IGNORED",
+                actor="SYSTEM",
+                details=f"Duplicate webhook {event.event_id} ({event.source_event}) received. Already processed safely. Processing skipped.",
+                db_path=db_path
+            )
+            return {
+                "status": "DUPLICATE",
+                "message": "Event already processed. Duplicate ignored safely.",
+                "event_id": event.event_id
+            }
+        elif status_val == "PROCESSING":
+            conn.close()
+            record_governance_audit(
+                event_type="CONCURRENT_WEBHOOK_BLOCKED",
+                actor="SYSTEM",
+                details=f"Concurrent webhook {event.event_id} ({event.source_event}) received while processing. Concurrent duplicate blocked.",
+                db_path=db_path
+            )
+            return {
+                "status": "ALREADY_PROCESSING",
+                "message": "Event is currently processing.",
+                "event_id": event.event_id
+            }
+    conn.close()
+
+    # Persist event into webhook_events table in PROCESSING status
+    persist_webhook_event(event, db_path=db_path)
 
     # 1. Handle unsupported events gracefully
     if event.event_type == "UNSUPPORTED":
@@ -200,6 +249,18 @@ def process_incoming_webhook_event(
         conn.commit()
         conn.close()
 
+        # If approved for execution, execute action idempotently and persist action execution record
+        idempotency_record = None
+        if gov_decision.decision == "ALLOW" and policy_res.approved:
+            idempotency_record = execute_action_idempotent(
+                case_id=case_id,
+                action_type=final_action,
+                attempt_number=1,
+                amount=amount,
+                customer_id=cust_id,
+                db_path=db_path
+            )
+
         update_webhook_status(event.event_id, "PROCESSED", db_path=db_path)
 
         return {
@@ -211,7 +272,8 @@ def process_incoming_webhook_event(
             "recommended_action": recommended_action,
             "final_action": final_action,
             "governance_decision": gov_decision.decision,
-            "policy_approved": policy_res.approved
+            "policy_approved": policy_res.approved,
+            "idempotency_key": idempotency_record.idempotency_key if idempotency_record else f"rc_{case_id}_{final_action}_1"
         }
 
     # 3. Process PAYMENT_CAPTURED / PAYMENT_LINK_PAID / ORDER_PAID -> Mark RECOVERED

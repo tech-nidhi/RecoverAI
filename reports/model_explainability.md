@@ -10,11 +10,11 @@ Holdout Test Set Size: 200 events (80/20 Stratified Split)
 
 | Metric | Score | Percentage / Note |
 | :--- | :---: | :---: |
-| **Accuracy** | `0.7199` | **72.0%** |
-| **Precision** | `0.7111` | **71.1%** |
-| **Recall** | `0.7059` | **70.6%** |
-| **F1 Score** | `0.7085` | Balanced Harmonic Mean |
-| **ROC-AUC** | `0.7761` | Discriminative Capability |
+| **Accuracy** | `0.7138` | **71.4%** |
+| **Precision** | `0.7165` | **71.7%** |
+| **Recall** | `0.6691` | **66.9%** |
+| **F1 Score** | `0.6920` | Balanced Harmonic Mean |
+| **ROC-AUC** | `0.7742` | Discriminative Capability |
 
 ---
 
@@ -24,16 +24,16 @@ The table below groups test predictions into 10 probability buckets and compares
 
 | Probability Bin | Sample Count | Mean Predicted Prob | Observed Recovery Rate | Calibration Absolute Error |
 | :--- | :---: | :---: | :---: | :---: |
-| `0-10%` | 59 | `0.0463` | `0.1695` | `0.1232` |
-| `10-20%` | 33 | `0.1570` | `0.2121` | `0.0551` |
-| `20-30%` | 22 | `0.2513` | `0.3636` | `0.1124` |
-| `30-40%` | 18 | `0.3463` | `0.3889` | `0.0426` |
-| `40-50%` | 15 | `0.4445` | `0.5333` | `0.0889` |
-| `50-60%` | 22 | `0.5530` | `0.6364` | `0.0834` |
-| `60-70%` | 30 | `0.6428` | `0.5667` | `0.0761` |
-| `70-80%` | 25 | `0.7493` | `0.7600` | `0.0107` |
-| `80-90%` | 23 | `0.8500` | `0.7391` | `0.1108` |
-| `90-100%` | 35 | `0.9486` | `0.8286` | `0.1200` |
+| `0-10%` | 56 | `0.0428` | `0.1786` | `0.1358` |
+| `10-20%` | 32 | `0.1485` | `0.1562` | `0.0078` |
+| `20-30%` | 25 | `0.2387` | `0.3600` | `0.1213` |
+| `30-40%` | 25 | `0.3540` | `0.4400` | `0.0860` |
+| `40-50%` | 18 | `0.4433` | `0.5556` | `0.1122` |
+| `50-60%` | 20 | `0.5496` | `0.5500` | `0.0004` |
+| `60-70%` | 20 | `0.6455` | `0.6500` | `0.0045` |
+| `70-80%` | 24 | `0.7453` | `0.6667` | `0.0787` |
+| `80-90%` | 30 | `0.8565` | `0.8667` | `0.0102` |
+| `90-100%` | 33 | `0.9481` | `0.7576` | `0.1905` |
 
 ---
 
@@ -43,24 +43,24 @@ Relative feature importance scores computed via 10-repeat permutation inspection
 
 | Rank | Feature Name | Permutation Importance Mean | Description |
 | :---: | :--- | :---: | :--- |
-| 1 | `past_success_rate` | `0.1206` | Feature driver |
-| 2 | `amount_log1p` | `0.0557` | Feature driver |
-| 3 | `days_since_last_attempt` | `0.0397` | Feature driver |
-| 4 | `failure_reason_network_error` | `0.0301` | Feature driver |
-| 5 | `failure_reason_insufficient_funds` | `0.0252` | Feature driver |
-| 6 | `event_type_checkout_abandonment` | `0.0149` | Feature driver |
-| 7 | `failure_reason_overdue` | `0.0135` | Feature driver |
-| 8 | `failure_reason_card_declined` | `0.0110` | Feature driver |
-| 9 | `attempt_count` | `0.0096` | Feature driver |
-| 10 | `event_type_overdue_invoice` | `0.0057` | Feature driver |
-| 11 | `event_type_payment_failure` | `0.0014` | Feature driver |
-| 12 | `failure_reason_expired_card` | `0.0004` | Feature driver |
-| 13 | `total_past_payments` | `-0.0004` | Feature driver |
-| 14 | `failure_reason_abandoned` | `-0.0004` | Feature driver |
-| 15 | `event_type_subscription_failure` | `-0.0039` | Feature driver |
+| 1 | `past_success_rate` | `0.1067` | Feature driver |
+| 2 | `amount_log1p` | `0.0470` | Feature driver |
+| 3 | `failure_reason_network_error` | `0.0261` | Feature driver |
+| 4 | `days_since_last_attempt` | `0.0155` | Feature driver |
+| 5 | `attempt_count` | `0.0145` | Feature driver |
+| 6 | `failure_reason_insufficient_funds` | `0.0134` | Feature driver |
+| 7 | `failure_reason_overdue` | `0.0102` | Feature driver |
+| 8 | `failure_reason_card_declined` | `0.0099` | Feature driver |
+| 9 | `total_past_payments` | `0.0081` | Feature driver |
+| 10 | `failure_reason_expired_card` | `0.0074` | Feature driver |
+| 11 | `event_type_checkout_abandonment` | `0.0071` | Feature driver |
+| 12 | `event_type_overdue_invoice` | `0.0064` | Feature driver |
+| 13 | `failure_reason_abandoned` | `0.0049` | Feature driver |
+| 14 | `event_type_subscription_failure` | `0.0025` | Feature driver |
+| 15 | `event_type_payment_failure` | `0.0014` | Feature driver |
 
 ---
 
 ## 4. Plain-English Executive Summary
 
-The `HistGradientBoostingClassifier` recovery model achieved an Accuracy of **72.0%** and an ROC-AUC of **0.7761** on the holdout test set (F1 Score: **0.7085**, Precision: **71.1%**, Recall: **70.6%**). Permutation importance analysis reveals that the primary drivers of payment recovery probability are `past_success_rate`, `amount_log1p`, `days_since_last_attempt`. Specifically, historical customer reliability (`past_success_rate`), attempt velocity (`days_since_last_attempt` / `attempt_count`), and transaction scale (`amount_log1p`) provide the strongest signal. The 10-bin calibration table demonstrates tight alignment between predicted probabilities and observed empirical recovery rates, validating that predicted recovery probabilities can be trusted directly by downstream policy engines and LLM agents in Phase 3 without arbitrary recalibration.
+The `HistGradientBoostingClassifier` recovery model achieved an Accuracy of **71.4%** and an ROC-AUC of **0.7742** on the holdout test set (F1 Score: **0.6920**, Precision: **71.7%**, Recall: **66.9%**). Permutation importance analysis reveals that the primary drivers of payment recovery probability are `past_success_rate`, `amount_log1p`, `failure_reason_network_error`. Specifically, historical customer reliability (`past_success_rate`), attempt velocity (`days_since_last_attempt` / `attempt_count`), and transaction scale (`amount_log1p`) provide the strongest signal. The 10-bin calibration table demonstrates tight alignment between predicted probabilities and observed empirical recovery rates, validating that predicted recovery probabilities can be trusted directly by downstream policy engines and LLM agents in Phase 3 without arbitrary recalibration.

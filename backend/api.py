@@ -52,6 +52,14 @@ from analytics.experiments import (
     create_experiment,
     get_experiment_detail,
 )
+from schema.idempotency_schema import SafeRetryRequest
+from execution.idempotency import (
+    execute_action_idempotent,
+    verify_provider_action_state,
+    execute_safe_retry,
+    get_action_records_for_case,
+    ensure_action_executions_table_exists,
+)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "recover_ai.db")
 
@@ -823,6 +831,61 @@ def get_case_attribution_details(event_id: str):
         return res.model_dump() if hasattr(res, "model_dump") else res.dict()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# -----------------------------------------------------------------------------
+# P3 IDEMPOTENCY, ACTION EXECUTION STATE MACHINE & SAFE RETRY ENDPOINTS
+# -----------------------------------------------------------------------------
+
+@app.get("/cases/{case_id}/idempotency", summary="Get action execution history & idempotency records for a case")
+def get_case_idempotency_history(case_id: str):
+    """Returns persistent action execution records, attempt counts, provider references, and status."""
+    records = get_action_records_for_case(case_id, db_path=DB_PATH)
+    return {
+        "case_id": case_id,
+        "count": len(records),
+        "actions": [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in records]
+    }
+
+
+@app.post("/cases/{case_id}/retry", summary="Execute safe retry with idempotency & governance check")
+def post_safe_retry(case_id: str, req: Optional[SafeRetryRequest] = None):
+    """
+    Executes a safe recovery action retry:
+    1. Verifies idempotency to prevent duplicate executions.
+    2. Verifies provider state if previous attempt had UNKNOWN timeout status.
+    3. Enforces policy governance (Global Kill Switch, Max Retries cap, Cooldown window).
+    """
+    actor_val = req.actor if req else "ADMIN"
+    override_val = req.force_override if req else False
+    timeout_val = req.simulate_timeout if req else False
+
+    res = execute_safe_retry(
+        case_id=case_id,
+        actor=actor_val,
+        force_override=override_val,
+        simulate_timeout=timeout_val,
+        db_path=DB_PATH
+    )
+    return res.model_dump() if hasattr(res, "model_dump") else res.dict()
+
+
+@app.post("/dev/simulate/timeout", summary="Dev endpoint: Simulate network timeout & ambiguous execution")
+def simulate_network_timeout(case_id: str = Query(...)):
+    """
+    Dev test endpoint simulating a network timeout during action execution:
+    1. Marks action status as UNKNOWN.
+    2. Updates case status to VERIFYING.
+    3. Enables provider state verification & safe retry flow testing.
+    """
+    res = execute_safe_retry(
+        case_id=case_id,
+        actor="DEV_SIMULATOR",
+        force_override=True,
+        simulate_timeout=True,
+        db_path=DB_PATH
+    )
+    return res.model_dump() if hasattr(res, "model_dump") else res.dict()
 
 
 # Serve static frontend files if frontend directory exists

@@ -1624,8 +1624,7 @@
                     </div>
                   </div>
                 </div>
-
-                {/* POLICY DECISION TRACE */}
+              {/* POLICY DECISION TRACE */}
                 <div className="space-y-3 pt-2">
                   <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
                     POLICY DECISION TRACE & BOUNDS
@@ -1635,7 +1634,7 @@
                     <div className="grid grid-cols-2 gap-2 text-[11px]">
                       <div><span className="text-text-muted block">RISK SCORE</span><span className="font-bold text-teal-success">{(selectedCase.recovery_probability * 100).toFixed(1)}%</span></div>
                       <div><span className="text-text-muted block">CUSTOMER VALUE</span><span className="font-bold text-text-primary">HIGH</span></div>
-                      <div><span className="text-text-muted block">PREVIOUS RETRIES</span><span className="font-bold text-text-primary">1 / 3</span></div>
+                      <div><span className="text-text-muted block">PREVIOUS RETRIES</span><span className="font-bold text-text-primary">{selectedCase.attempt_count || 1} / 3</span></div>
                       <div><span className="text-text-muted block">COOLDOWN</span><span className="font-bold text-teal-success">SATISFIED</span></div>
                     </div>
 
