@@ -6,10 +6,10 @@ This report presents the empirical financial recovery outcomes and action-level 
 
 ## 1. Top-Level Financial Recovery Performance
 
-- **Total Events Attempted**: `1411`
-- **Total Revenue at Risk**: `₹137,013,082.89 INR`
-- **Total Revenue Recovered**: **`₹50,109,355.39 INR`**
-- **Overall Financial Recovery Rate**: **`36.57%`**
+- **Total Events Attempted**: `1465`
+- **Total Revenue at Risk**: `₹138,629,582.89 INR`
+- **Total Revenue Recovered**: **`₹51,199,355.39 INR`**
+- **Overall Financial Recovery Rate**: **`36.93%`**
 
 ---
 
@@ -20,17 +20,17 @@ The table below breaks down event counts, revenue at risk, recovered revenue, an
 | Executed Action | Event Count | Revenue at Risk (INR) | Revenue Recovered (INR) | Recovery Rate | Success Count | Failed Count |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | `RETRY` | 238 | `₹14,092,446.80` | `₹6,107,210.98` | **`43.3%`** | 169 | 49 |
-| `PAYMENT_LINK` | 290 | `₹45,774,403.39` | `₹26,006,636.74` | **`56.8%`** | 177 | 90 |
-| `REMINDER` | 366 | `₹22,999,563.10` | `₹12,858,779.48` | **`55.9%`** | 216 | 127 |
+| `PAYMENT_LINK` | 300 | `₹46,589,403.39` | `₹26,821,636.74` | **`57.6%`** | 187 | 90 |
+| `REMINDER` | 386 | `₹23,264,563.10` | `₹12,858,779.48` | **`55.3%`** | 216 | 147 |
 | `ESCALATE` | 88 | `₹13,381,302.90` | `₹5,111,728.19` | **`38.2%`** | 20 | 20 |
-| `STOP` | 429 | `₹40,765,366.70` | `₹25,000.00` | **`0.1%`** | 1 | 0 |
+| `STOP` | 453 | `₹41,301,866.70` | `₹300,000.00` | **`0.7%`** | 12 | 0 |
 
 ---
 
 ## 3. False Intervention Analysis
 
-- **False Interventions**: `266` events
-- **Capital / Effort Exposure**: `₹23,490,188.58 INR`
+- **False Interventions**: `286` events
+- **Capital / Effort Exposure**: `₹23,755,188.58 INR`
 
 > **Definition**: A "false intervention" occurs when an active recovery action (`RETRY`, `PAYMENT_LINK`, or `REMINDER`) was dispatched but the transaction still resulted in a `FAILED` outcome. Minimizing false interventions protects gateway fees, customer trust, and operational costs.
 

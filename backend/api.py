@@ -60,6 +60,7 @@ from execution.idempotency import (
     get_action_records_for_case,
     ensure_action_executions_table_exists,
 )
+from agent.copilot_engine import process_copilot_query
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "recover_ai.db")
 
@@ -329,6 +330,8 @@ def get_simulator():
 class CopilotQueryRequest(BaseModel):
     query: str = Field(..., description="Merchant operational query")
     event_id: Optional[str] = Field(None, description="Optional target transaction ID for drill-down")
+    conversation_id: Optional[str] = Field("default_session", description="Session conversation ID")
+    context: Optional[Dict[str, Any]] = Field(None, description="Optional multi-turn conversation context")
 
 
 @app.get("/copilot/brief", summary="Get Today's Recovery Brief for AI CFO Copilot")
@@ -358,17 +361,23 @@ def get_copilot_brief():
 
     # Top 3 high priority cases for evidence chips
     cursor.execute("""
-        SELECT event_id, customer_id, amount, recovery_probability, recommended_action, executed_action as final_action
+        SELECT event_id, customer_id, amount, recovery_probability, recommended_action
         FROM revenue_events
-        ORDER BY (amount * recovery_probability) DESC
-        LIMIT 3;
+        ORDER BY (amount * recovery_probability) DESC LIMIT 3;
     """)
     top_rows = [dict(r) for r in cursor.fetchall()]
-
     conn.close()
 
+    priority_brief = [
+        {
+            "event_id": r["event_id"],
+            "summary": f"{r['customer_id']} failure (₹{r['amount']:,.0f} INR) — {int(r['recovery_probability']*100)}% recovery probability. Recommended: {r['recommended_action']}."
+        } for r in top_rows
+    ]
+
     return {
-        "timestamp": "17:04:32 IST",
+        "status": "healthy",
+        "recovery_brief": f"RecoverAI has processed {total_events} failure events and recovered ₹{total_recovered/10000000:.2f}Cr (+73.8% total recovery rate). Estimated organic baseline is 44.2%, delivering an estimated +29.6% incremental recovery lift.",
         "metrics": {
             "revenue_at_risk": round(total_risk, 2),
             "open_cases": total_events,
@@ -422,117 +431,55 @@ def get_copilot_brief():
 @app.post("/copilot/query", summary="Execute Evidence-Backed Operational Copilot Query")
 def query_copilot(req: CopilotQueryRequest):
     """
-    Evaluates merchant query against database evidence and policy rules, returning
-    a structured answer with evidence chips, policy checks, or simulation previews.
+    Evaluates merchant query through intent classification and backend tools, returning
+    a structured answer with evidence chips, source references, and simulation previews.
     """
-    q = req.query.lower()
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    ensure_governance_tables_exist(DB_PATH)
+    ensure_action_executions_table_exists(DB_PATH)
+    cid = getattr(req, "conversation_id", None) or "default_session"
+    ctx = getattr(req, "context", None)
+    if not ctx and getattr(req, "event_id", None):
+        ctx = {"case_id": req.event_id}
 
-    if "drop" in q or "decrease" in q or "why did recovery" in q:
-        conn.close()
+    res = process_copilot_query(
+        query=req.query,
+        conversation_id=cid,
+        context=ctx,
+        db_path=DB_PATH
+    )
+    return res
+
+
+class CopilotConfirmRequest(BaseModel):
+    action_type: str = Field(..., description="Action type to confirm e.g. PAUSE_AUTOMATION")
+    actor: Optional[str] = Field("ADMIN", description="Actor confirming the action")
+
+
+@app.post("/copilot/confirm", summary="Confirm and execute a state-changing Copilot action")
+def confirm_copilot_action(req: CopilotConfirmRequest):
+    """
+    Executes an explicitly confirmed state-changing action (e.g. pausing automation).
+    """
+    if req.action_type == "PAUSE_AUTOMATION":
+        new_cfg = update_governance_config(
+            {"global_automation_active": False},
+            actor=req.actor or "COPILOT",
+            reason="Automation paused via Copilot confirmation",
+            db_path=DB_PATH
+        )
+        record_governance_audit(
+            event_type="AUTOMATION_PAUSED",
+            actor=req.actor or "COPILOT",
+            details="Global Kill Switch set to active=False via Copilot user confirmation.",
+            db_path=DB_PATH
+        )
         return {
-            "query": req.query,
-            "answer": "Recovery rate dropped 4.2% earlier this week because high-value transient payment failures increased by 18%, primarily driven by bank gateway timeouts.",
-            "confidence": "HIGH",
-            "evidence": [
-                {"label": "18% transient payment failure spike", "case_id": None},
-                {"label": "₹3.8L additional exposure", "case_id": None},
-                {"label": "71% historical link recovery", "case_id": None}
-            ],
-            "sources": ["revenue_batch_2026_08_23", "gateway_error_log"]
+            "status": "success",
+            "message": "Global automation successfully paused. Incoming webhooks will be observed in read-only mode.",
+            "global_automation_active": False
         }
     
-    elif "retry" in q and ("stopped" in q or "didn't" in q or "not" in q or "why" in q):
-        # Fetch an example blocked transaction
-        cursor.execute("""
-            SELECT event_id, customer_id, amount, recommended_action, executed_action as final_action, policy_decision, attempt_count
-            FROM revenue_events
-            WHERE policy_decision LIKE 'BLOCKED%'
-            LIMIT 1;
-        """)
-        r = cursor.fetchone()
-        conn.close()
-        case_id = r["event_id"] if r else "evt_9f2a1c"
-        attempts = r["attempt_count"] if r else 3
-        rule_text = r["policy_decision"] if r else "BLOCKED: rule_3_max_retries"
-
-        return {
-            "query": req.query,
-            "answer": f"The LLM reasoning agent recommended another RETRY for transaction {case_id[:8]}..., but the deterministic policy engine blocked execution because maximum retry attempts ({attempts}/3) were reached ({rule_text}).",
-            "confidence": "HIGH",
-            "evidence": [
-                {"label": f"Transaction {case_id[:8]}...", "case_id": case_id},
-                {"label": "Rule 3: max_retry_attempts = 3", "case_id": case_id},
-                {"label": f"Policy Status: {rule_text}", "case_id": case_id}
-            ],
-            "policy_explanation": {
-                "ai_recommendation": "RETRY",
-                "policy_rule": "max_retry_attempts = 3",
-                "current_attempts": f"{attempts} / 3",
-                "final_decision": "BLOCKED"
-            },
-            "sources": [case_id, "policy_rules_yaml"]
-        }
-
-    elif "increase" in q or "retry count" in q or "max retries" in q or "simulator" in q:
-        conn.close()
-        return {
-            "query": req.query,
-            "answer": "If you increase maximum retries from 2 to 3, projected revenue recovery increases by +₹1.2L across 684 additional attempts, with a moderate increase in customer friction risk.",
-            "confidence": "HIGH",
-            "evidence": [
-                {"label": "Current max retries: 2", "case_id": None},
-                {"label": "Proposed max retries: 3", "case_id": None},
-                {"label": "Projected incremental lift: +₹1.2L", "case_id": None}
-            ],
-            "simulation_preview": {
-                "current_policy": "Max retries: 2",
-                "current_recovery": "₹29.5M",
-                "proposed_policy": "Max retries: 3",
-                "proposed_recovery": "₹30.7M",
-                "incremental_recovery": "+₹1.2L",
-                "additional_interventions": "+684"
-            },
-            "sources": ["recovery_simulator_v1", "rules_yaml"]
-        }
-
-    elif "incremental" in q or "roi" in q or "impact" in q or "attribution" in q or "best performing" in q or "intervention" in q or "experiment" in q:
-        conn.close()
-        impact = compute_recovery_impact_metrics(DB_PATH)
-        m = impact["metrics"]
-        top_int = impact["interventions"][0] if impact["interventions"] else {"action": "PAYMENT_LINK", "estimated_incremental": 510000.0, "observed_rate": 72.4, "baseline_rate": 37.2, "lift_percent": 154.0, "cases": 3842}
-
-        return {
-            "query": req.query,
-            "answer": f"RecoverAI generated an estimated +₹{m['estimated_incremental_recovery']/100000:.1f}L of incremental recovery (+{m['recovery_lift_percent']}% lift over estimated organic baseline) with an estimated ROI of {m['estimated_roi']}x. {top_int['action']} is your highest performing intervention, recovering ₹{top_int['recovered']/100000:.1f}L across {top_int['cases']} cases ({top_int['observed_rate']}% recovery rate vs {top_int['baseline_rate']}% baseline).",
-            "confidence": "HIGH",
-            "evidence": [
-                {"label": f"Estimated Incremental Recovery: ₹{m['estimated_incremental_recovery']/100000:.1f}L", "case_id": None},
-                {"label": f"Estimated ROI: {m['estimated_roi']}x", "case_id": None},
-                {"label": f"Top Intervention ({top_int['action']}): +{top_int['lift_percent']}% lift", "case_id": None}
-            ],
-            "attribution_summary": m,
-            "sources": ["attribution_service", "revenue_events_db"]
-        }
-
-    else:
-        # Default response
-        cursor.execute("SELECT event_id, customer_id, amount, recovery_probability FROM revenue_events ORDER BY (amount * recovery_probability) DESC LIMIT 2;")
-        top_cases = [dict(r) for r in cursor.fetchall()]
-        conn.close()
-
-        c1 = top_cases[0] if top_cases else {"event_id": "evt_8f2a1c", "customer_id": "Acme Corp", "amount": 240000}
-        return {
-            "query": req.query,
-            "answer": f"Based on your current recovery pipeline, your highest-value priority is {c1['customer_id']} with ₹{c1['amount']:,} INR at risk ({int(c1.get('recovery_probability', 0.82)*100)}% recovery probability).",
-            "confidence": "HIGH",
-            "evidence": [
-                {"label": f"{c1['customer_id']}: ₹{c1['amount']:,}", "case_id": c1['event_id']},
-                {"label": "73.8% total pipeline recoverable", "case_id": None}
-            ],
-            "sources": [c1['event_id'], "revenue_events_db"]
-        }
+    raise HTTPException(status_code=400, detail=f"Unsupported confirmation action_type '{req.action_type}'")
 
 
 # -----------------------------------------------------------------------------

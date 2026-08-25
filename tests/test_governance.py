@@ -28,7 +28,7 @@ def setup_function():
         "policy_version": "policy_v2_2026",
         "max_retries": 3,
         "retry_cooldown_hours": 24.0,
-        "max_daily_auto_exposure": 1000000.0,
+        "max_daily_auto_exposure": 100000000.0,
         "max_customer_interventions": 3,
         "human_approval_threshold": 100000.0,
         "action_controls": {

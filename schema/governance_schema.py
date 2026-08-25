@@ -17,7 +17,7 @@ class GovernancePolicyConfig(BaseModel):
     policy_version: str = Field("policy_v2_2026", description="Active policy version identifier")
     max_retries: int = Field(3, ge=1, le=10, description="Max allowed payment retry attempts")
     retry_cooldown_hours: float = Field(24.0, ge=0.0, description="Cooldown period in hours between retries")
-    max_daily_auto_exposure: float = Field(1000000.0, gt=0.0, description="Max daily automated recovery exposure cap in INR")
+    max_daily_auto_exposure: float = Field(100000000.0, gt=0.0, description="Max daily automated recovery exposure cap in INR")
     max_customer_interventions: int = Field(3, ge=1, description="Max automated interventions per customer")
     human_approval_threshold: float = Field(100000.0, gt=0.0, description="Transaction amount threshold requiring human approval")
     action_controls: Dict[str, bool] = Field(

@@ -173,12 +173,16 @@
       const [loading, setLoading] = useState(false);
       const [response, setResponse] = useState(null);
       const [showSources, setShowSources] = useState(false);
+      const [confirmLoading, setConfirmLoading] = useState(false);
+      const [confirmMessage, setConfirmMessage] = useState(null);
 
       const presets = [
-        "Why did recovery drop today?",
-        "Which customers should I follow up with?",
-        "Why didn't RecoverAI retry this payment?",
-        "What happens if I increase max retries to 3?"
+        "Why did recovery change today?",
+        "What are the top revenue-at-risk cases?",
+        "Why was this recovery blocked?",
+        "Which recovery action performs best?",
+        "What happens if max retries increases to 3?",
+        "Is RecoverAI operating normally?"
       ];
 
       const handleQuery = async (qText) => {
@@ -186,6 +190,7 @@
         if (!targetQ.trim()) return;
 
         setLoading(true);
+        setConfirmMessage(null);
         try {
           const res = await fetch('/copilot/query', {
             method: 'POST',
@@ -201,21 +206,39 @@
         }
       };
 
+      const handleConfirmAction = async (actionType) => {
+        setConfirmLoading(true);
+        try {
+          const res = await fetch('/copilot/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_type: actionType, actor: 'COPILOT_ADMIN' })
+          });
+          const data = await res.json();
+          setConfirmMessage(data.message);
+          setResponse(prev => ({ ...prev, requires_confirmation: false }));
+        } catch (e) {
+          console.error("Failed to confirm copilot action", e);
+        } finally {
+          setConfirmLoading(false);
+        }
+      };
+
       return (
         <div className="ledger-panel p-6 space-y-5 font-jetbrains">
           <div className="flex items-center justify-between border-b border-ledger-border pb-3">
-            <div className="flex items-center space-x-2 text-amber-gold font-bold">
-              <span className="w-2 h-2 rounded-full bg-amber-gold"></span>
-              <span className="uppercase tracking-widest text-xs">ASK RECOVERAI // OPERATIONAL COPILOT</span>
+            <div className="flex items-center space-x-2.5 text-amber-gold font-bold">
+              <span className="w-2.5 h-2.5 rounded-full bg-teal-success animate-pulse"></span>
+              <span className="uppercase tracking-widest text-xs">RECOVERAI COPILOT // OPERATIONS ANALYST</span>
             </div>
-            <span className="text-[10px] text-text-muted">EVIDENCE-GROUNDED QUERY INTERFACE</span>
+            <span className="text-[10px] text-teal-success font-bold font-mono">● CONNECTED TO RECOVERY CONTROL PLANE</span>
           </div>
 
           {/* Search Input Bar */}
           <div className="flex space-x-2">
             <input
               type="text"
-              placeholder="Ask about your recovery pipeline, policy rules, or strategy..."
+              placeholder="Ask about recovery drops, transactions, policy blocks, intervention lift, or simulations..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleQuery()}
@@ -224,7 +247,7 @@
             <button
               onClick={() => handleQuery()}
               disabled={loading}
-              className="px-5 py-2.5 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+              className="px-5 py-2.5 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition shrink-0"
             >
               {loading ? 'ANALYZING...' : 'QUERY'}
             </button>
@@ -232,7 +255,7 @@
 
           {/* Suggested Preset Queries */}
           <div className="flex flex-wrap gap-2 text-[10px] text-text-muted">
-            <span className="py-1">Suggested Operational Queries:</span>
+            <span className="py-1 font-bold text-text-primary">Suggested Operations Queries:</span>
             {presets.map((p, idx) => (
               <button
                 key={idx}
@@ -244,41 +267,89 @@
             ))}
           </div>
 
+          {/* Loading Tool Execution State Indicator */}
+          {loading && (
+            <div className="bg-ledger-card-subtle p-3 border border-amber-gold/30 text-xs font-mono space-y-1 text-amber-gold">
+              <div className="flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-amber-gold animate-ping"></span>
+                <span className="font-bold">ANALYZING RECOVERY DATA...</span>
+              </div>
+              <div className="text-[10px] text-text-muted pl-4">
+                ✓ Querying RecoverAI control plane services & structured database tools...
+              </div>
+            </div>
+          )}
+
+          {/* Confirmation Success Alert */}
+          {confirmMessage && (
+            <div className="bg-teal-success/10 border border-teal-success/40 p-3 text-xs text-teal-success font-mono font-bold">
+              ✓ {confirmMessage}
+            </div>
+          )}
+
           {/* Structured Evidence-Backed Response Display */}
-          {response && (
+          {!loading && response && (
             <div className="bg-ledger-card-subtle p-5 border border-ledger-border space-y-4 text-xs">
               
-              {/* Answer & Confidence */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">OPERATIONAL ANALYSIS</span>
-                  <span className="text-[10px] text-teal-success font-bold px-2 py-0.5 bg-teal-success/10 border border-teal-success/30">
-                    CONFIDENCE: {response.confidence}
+              {/* Intent & Header */}
+              <div className="flex items-center justify-between border-b border-ledger-border/60 pb-2">
+                <span className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">
+                  INTENT: {response.intent || 'RECOVERY_ANALYSIS'}
+                </span>
+                {response.tools_called && response.tools_called.length > 0 && (
+                  <span className="text-[10px] text-text-muted font-mono">
+                    TOOLS USED: {response.tools_called.join(', ')}
                   </span>
-                </div>
-                <p className="text-text-primary font-sans leading-relaxed text-sm">
+                )}
+              </div>
+
+              {/* Answer Executive Summary */}
+              <div className="space-y-1">
+                <p className="text-text-primary font-sans leading-relaxed text-sm font-medium">
                   {response.answer}
                 </p>
               </div>
 
-              {/* Policy Explanation Component (Subordinate AI Principle) */}
-              {response.policy_explanation && (
-                <div className="bg-amber-gold/10 border border-amber-gold/40 p-3 space-y-2 text-xs">
-                  <div className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">
-                    SUBORDINATE AI POLICY CHECK
+              {/* Key Findings Bullet Points */}
+              {response.key_findings && response.key_findings.length > 0 && (
+                <div className="bg-ledger-bg p-3.5 border border-ledger-border space-y-1.5 font-mono text-[11px]">
+                  <div className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">KEY OPERATIONAL FINDINGS</div>
+                  {response.key_findings.map((kf, idx) => (
+                    <div key={idx} className="text-text-primary">{kf.startsWith('•') || kf.startsWith('1.') ? kf : `• ${kf}`}</div>
+                  ))}
+                </div>
+              )}
+
+              {/* Mutating Action Confirmation Panel */}
+              {response.requires_confirmation && (
+                <div className="bg-amber-gold/10 border-2 border-amber-gold/50 p-4 space-y-3 font-mono">
+                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider flex items-center space-x-2">
+                    <span>⚠️ CONFIRMATION REQUIRED FOR STATE MUTATION</span>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                    <div><span className="text-text-muted block">AI RECOMMENDATION</span><span className="font-bold text-text-primary">{response.policy_explanation.ai_recommendation}</span></div>
-                    <div><span className="text-text-muted block">POLICY RULE</span><span className="font-bold text-amber-gold">{response.policy_explanation.policy_rule}</span></div>
-                    <div><span className="text-text-muted block">ATTEMPTS</span><span className="font-bold text-text-primary">{response.policy_explanation.current_attempts}</span></div>
-                    <div><span className="text-text-muted block">FINAL DECISION</span><span className="font-bold text-amber-gold">{response.policy_explanation.final_decision}</span></div>
+                  <p className="text-xs text-text-primary">
+                    {response.action_preview?.confirmation_prompt || 'Do you want to confirm this state change?'}
+                  </p>
+                  <div className="flex space-x-3 pt-1">
+                    <button
+                      onClick={() => handleConfirmAction(response.action_preview?.action_type || 'PAUSE_AUTOMATION')}
+                      disabled={confirmLoading}
+                      className="px-4 py-2 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+                    >
+                      {confirmLoading ? 'EXECUTING...' : '[ CONFIRM PAUSE ]'}
+                    </button>
+                    <button
+                      onClick={() => setResponse(prev => ({ ...prev, requires_confirmation: false }))}
+                      className="px-4 py-2 bg-ledger-card border border-ledger-border text-text-muted hover:text-text-primary text-xs uppercase transition"
+                    >
+                      [ CANCEL ]
+                    </button>
                   </div>
                 </div>
               )}
 
               {/* Simulation Preview Component */}
               {response.simulation_preview && (
-                <div className="bg-ledger-bg p-3 border border-ledger-border space-y-3">
+                <div className="bg-ledger-bg p-3 border border-ledger-border space-y-3 font-mono">
                   <div className="flex items-center justify-between text-[10px] text-amber-gold font-bold uppercase tracking-wider">
                     <span>COUNTERFACTUAL SIMULATION PREVIEW</span>
                     <button onClick={scrollToSimulator} className="text-amber-gold hover:underline">
@@ -287,16 +358,16 @@
                   </div>
                   <div className="grid grid-cols-3 gap-3 text-center text-xs">
                     <div className="bg-ledger-card p-2 border border-ledger-border">
-                      <span className="text-[10px] text-text-muted block">CURRENT ({response.simulation_preview.current_policy})</span>
-                      <span className="font-bold text-text-primary">{response.simulation_preview.current_recovery}</span>
+                      <span className="text-[10px] text-text-muted block">CURRENT MAX RETRIES</span>
+                      <span className="font-bold text-text-primary">{response.simulation_preview.current_policy.max_retry_attempts}</span>
                     </div>
                     <div className="bg-ledger-card p-2 border border-ledger-border">
-                      <span className="text-[10px] text-text-muted block">PROPOSED ({response.simulation_preview.proposed_policy})</span>
-                      <span className="font-bold text-teal-success">{response.simulation_preview.proposed_recovery}</span>
+                      <span className="text-[10px] text-text-muted block">PROPOSED MAX RETRIES</span>
+                      <span className="font-bold text-teal-success">{response.simulation_preview.proposed_policy.max_retry_attempts}</span>
                     </div>
                     <div className="bg-teal-success/10 p-2 border border-teal-success/30">
-                      <span className="text-[10px] text-teal-success block">INCREMENTAL LIFT</span>
-                      <span className="font-bold text-teal-success">{response.simulation_preview.incremental_recovery}</span>
+                      <span className="text-[10px] text-teal-success block">ESTIMATED LIFT</span>
+                      <span className="font-bold text-teal-success">{response.simulation_preview.projected_simulation.estimated_recovery_lift_pct}</span>
                     </div>
                   </div>
                 </div>
@@ -320,9 +391,17 @@
                 </div>
               )}
 
+              {/* Recommended Next Action */}
+              {response.recommended_action && (
+                <div className="bg-ledger-bg p-3 border border-ledger-border/60 text-xs font-mono">
+                  <span className="text-amber-gold font-bold uppercase text-[10px] block mb-0.5">RECOMMENDED NEXT STEP:</span>
+                  <span className="text-text-primary text-[11px]">{response.recommended_action}</span>
+                </div>
+              )}
+
               {/* View Fact Sources Button */}
               <div className="flex justify-between items-center text-[10px] text-text-muted pt-2 border-t border-ledger-border">
-                <span>AI ANALYSIS SUBORDINATE TO DETERMINISTIC CONTROL</span>
+                <span>EVIDENCE-GROUNDED CONTROL PLANE INTEL</span>
                 <button
                   onClick={() => setShowSources(!showSources)}
                   className="text-amber-gold hover:underline uppercase font-bold"
@@ -333,7 +412,7 @@
 
               {showSources && response.sources && (
                 <div className="bg-ledger-bg p-3 border border-ledger-border text-[10px] font-mono space-y-1 text-text-muted">
-                  <div className="font-bold text-text-primary uppercase">FACTUAL DATASET SOURCES RECORDED:</div>
+                  <div className="font-bold text-text-primary uppercase">VERIFIED DATASET SOURCES RECORDED:</div>
                   {response.sources.map((s, idx) => (
                     <div key={idx}>• {s}</div>
                   ))}
