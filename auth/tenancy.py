@@ -15,9 +15,13 @@ DEFAULT_WORKSPACE_ID = "ws_default"
 
 
 def get_db_connection(db_path: str = "data/recover_ai.db") -> sqlite3.Connection:
-    """Establishes SQLite connection with row_factory dict access."""
+    """Establishes SQLite connection with row_factory dict access and WAL mode + timeout."""
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
     conn.row_factory = sqlite3.Row
     return conn
 

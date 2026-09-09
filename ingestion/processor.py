@@ -57,7 +57,7 @@ def persist_webhook_event(
     Persists normalized webhook event into SQLite webhook_events table.
     """
     ensure_webhook_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
 
     try:
@@ -88,7 +88,7 @@ def update_webhook_status(
     db_path: str = "data/recover_ai.db"
 ) -> None:
     """Updates processing status of a webhook event in SQLite."""
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     processed_at = datetime.utcnow().isoformat() + "Z"
     cursor.execute("""
@@ -132,7 +132,7 @@ def process_incoming_webhook_event(
 
     # Deduplication check
     ensure_webhook_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM webhook_events WHERE event_id = ? AND workspace_id = ?;", (event.event_id, workspace_id))

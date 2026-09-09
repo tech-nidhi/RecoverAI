@@ -431,8 +431,13 @@
               company_name: companyName
             })
           });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || 'Signup failed');
+          let data;
+          try {
+            data = await res.json();
+          } catch (jsonErr) {
+            data = { detail: res.statusText || 'Registration server error. Please try again.' };
+          }
+          if (!res.ok) throw new Error(data.detail || data.message || 'Signup failed');
           localStorage.setItem('rai_session_token', data.session_token);
           onSuccess(data);
         } catch (err) {
@@ -540,8 +545,13 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
           });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || 'Login failed');
+          let data;
+          try {
+            data = await res.json();
+          } catch (jsonErr) {
+            data = { detail: res.statusText || 'Authentication server error. Please try again.' };
+          }
+          if (!res.ok) throw new Error(data.detail || data.message || 'Login failed');
           localStorage.setItem('rai_session_token', data.session_token);
           onSuccess(data);
         } catch (err) {

@@ -29,7 +29,7 @@ from auth.tenancy import ensure_tenancy_tables_and_columns_exist, DEFAULT_WORKSP
 def ensure_action_executions_table_exists(db_path: str = "data/recover_ai.db") -> None:
     """Ensures action_executions table exists with UNIQUE constraint on idempotency_key and workspace_id."""
     ensure_tenancy_tables_and_columns_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -84,7 +84,7 @@ def get_action_record_by_key(
 ) -> Optional[IdempotentActionRecord]:
     """Fetches single action execution record by idempotency_key."""
     ensure_action_executions_table_exists(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -104,7 +104,7 @@ def get_action_records_for_case(
 ) -> List[IdempotentActionRecord]:
     """Fetches all historical action execution records for a case_id sorted by attempt_number ASC."""
     ensure_action_executions_table_exists(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -146,7 +146,7 @@ def execute_action_idempotent(
         action_id = existing.action_id
     else:
         # 2. Insert new Execution Record in EXECUTING state
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         cursor = conn.cursor()
         now_str = datetime.utcnow().isoformat() + "Z"
         action_id = f"act_{uuid4().hex[:10]}"
@@ -184,7 +184,7 @@ def execute_action_idempotent(
         completed_at = datetime.utcnow().isoformat() + "Z"
         err_msg = "NETWORK_TIMEOUT: Gateway HTTP response lost after dispatch"
         
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE action_executions
@@ -250,7 +250,7 @@ def execute_action_idempotent(
     final_status: ExecutionState = "SUCCEEDED" if resp.success else ("FAILED" if resp.status == "FAILED" else "SUCCEEDED")
     provider_stat: ProviderStatus = "CONFIRMED" if resp.success else "NOT_EXECUTED"
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE action_executions
@@ -294,7 +294,7 @@ def verify_provider_action_state(
     Queries payment gateway to authoritatively verify if an ambiguous UNKNOWN action was actually executed.
     """
     ensure_action_executions_table_exists(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
 
     ref_id = action_record.provider_reference or f"ref_{action_record.case_id[:8]}"
@@ -367,7 +367,7 @@ def execute_safe_retry(
     """
     ensure_action_executions_table_exists(db_path)
     
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 

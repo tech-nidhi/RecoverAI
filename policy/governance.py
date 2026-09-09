@@ -20,7 +20,7 @@ DEFAULT_GOVERNANCE_CONFIG = GovernancePolicyConfig()
 def ensure_governance_tables_exist(db_path: str = "data/recover_ai.db") -> None:
     """Ensures governance_config, approval_requests, and governance_audit_logs tables exist with tenancy columns."""
     ensure_tenancy_tables_and_columns_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -72,7 +72,7 @@ def get_governance_config(
 ) -> GovernancePolicyConfig:
     """Loads active governance policy config from SQLite database for a specific workspace."""
     ensure_governance_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
 
     cursor.execute("SELECT key, value FROM governance_config WHERE workspace_id = ?;", (workspace_id,))
@@ -117,7 +117,7 @@ def update_governance_config(
     config_dict.update(updates)
     new_config = GovernancePolicyConfig(**config_dict)
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     now_str = datetime.utcnow().isoformat() + "Z"
 
@@ -150,7 +150,7 @@ def record_governance_audit(
 ) -> None:
     """Records an explicit governance event into SQLite governance_audit_logs."""
     ensure_governance_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     now_str = datetime.utcnow().isoformat() + "Z"
 
@@ -169,7 +169,7 @@ def get_todays_automated_exposure(
 ) -> float:
     """Calculates today's total automated recovery exposure executed so far for a workspace."""
     ensure_governance_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
 
@@ -303,7 +303,7 @@ def create_approval_request(
 ) -> str:
     """Creates a human approval request in SQLite database with a 30-minute expiration window."""
     ensure_governance_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
 
     approval_id = f"appr_{uuid4().hex[:10]}"
@@ -339,7 +339,7 @@ def get_pending_approvals(
 ) -> List[Dict[str, Any]]:
     """Returns active pending approval requests for a workspace and auto-expires old ones."""
     ensure_governance_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     now_str = datetime.utcnow().isoformat() + "Z"
@@ -371,7 +371,7 @@ def decide_approval_request(
 ) -> Dict[str, Any]:
     """Processes manual human approval or rejection decision."""
     ensure_governance_tables_exist(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     now_str = datetime.utcnow().isoformat() + "Z"
