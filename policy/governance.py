@@ -1,5 +1,5 @@
 """
-Policy Governance Layer, Human Approval Workflow, and Global Kill Switch Engine.
+Policy Governance Layer, Human Approval Workflow, and Global Kill Switch Engine (Multi-Tenant Aware).
 """
 
 import json
@@ -12,26 +12,27 @@ from schema.governance_schema import (
     GovernancePolicyConfig,
     PolicyDecision,
 )
-
+from auth.tenancy import ensure_tenancy_tables_and_columns_exist, DEFAULT_WORKSPACE_ID
 
 DEFAULT_GOVERNANCE_CONFIG = GovernancePolicyConfig()
 
 
 def ensure_governance_tables_exist(db_path: str = "data/recover_ai.db") -> None:
-    """Ensures governance_config, approval_requests, and governance_audit_logs tables exist."""
+    """Ensures governance_config, approval_requests, and governance_audit_logs tables exist with tenancy columns."""
+    ensure_tenancy_tables_and_columns_exist(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Governance configuration table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS governance_config (
-            key TEXT PRIMARY KEY,
+            key TEXT,
             value TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            workspace_id TEXT DEFAULT 'ws_default',
+            PRIMARY KEY (workspace_id, key)
         );
     """)
 
-    # Human approval requests table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS approval_requests (
             approval_id TEXT PRIMARY KEY,
@@ -45,18 +46,19 @@ def ensure_governance_tables_exist(db_path: str = "data/recover_ai.db") -> None:
             expires_at TEXT NOT NULL,
             decided_at TEXT,
             decided_by TEXT,
-            rejection_reason TEXT
+            rejection_reason TEXT,
+            workspace_id TEXT DEFAULT 'ws_default'
         );
     """)
 
-    # Policy audit log table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS governance_audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT NOT NULL,
             actor TEXT NOT NULL,
             details TEXT NOT NULL,
-            timestamp TEXT NOT NULL
+            timestamp TEXT NOT NULL,
+            workspace_id TEXT DEFAULT 'ws_default'
         );
     """)
 
@@ -64,14 +66,23 @@ def ensure_governance_tables_exist(db_path: str = "data/recover_ai.db") -> None:
     conn.close()
 
 
-def get_governance_config(db_path: str = "data/recover_ai.db") -> GovernancePolicyConfig:
-    """Loads active governance policy config from SQLite database."""
+def get_governance_config(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> GovernancePolicyConfig:
+    """Loads active governance policy config from SQLite database for a specific workspace."""
     ensure_governance_tables_exist(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT key, value FROM governance_config;")
+    cursor.execute("SELECT key, value FROM governance_config WHERE workspace_id = ?;", (workspace_id,))
     rows = dict(cursor.fetchall())
+    
+    # Fallback to ws_default if target workspace has no config yet
+    if not rows and workspace_id != DEFAULT_WORKSPACE_ID:
+        cursor.execute("SELECT key, value FROM governance_config WHERE workspace_id = ?;", (DEFAULT_WORKSPACE_ID,))
+        rows = dict(cursor.fetchall())
+
     conn.close()
 
     if not rows:
@@ -96,11 +107,12 @@ def update_governance_config(
     updates: Dict[str, Any],
     actor: str = "ADMIN",
     reason: Optional[str] = None,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> GovernancePolicyConfig:
-    """Updates governance config in SQLite database and logs change to Audit Trail."""
+    """Updates governance config in SQLite database and logs change to Audit Trail for a specific workspace."""
     ensure_governance_tables_exist(db_path)
-    config = get_governance_config(db_path)
+    config = get_governance_config(db_path, workspace_id=workspace_id)
     config_dict = config.dict()
     config_dict.update(updates)
     new_config = GovernancePolicyConfig(**config_dict)
@@ -112,16 +124,16 @@ def update_governance_config(
     for key, val in new_config.dict().items():
         val_str = json.dumps(val) if isinstance(val, (dict, list, bool)) else str(val)
         cursor.execute("""
-            INSERT OR REPLACE INTO governance_config (key, value, updated_at)
-            VALUES (?, ?, ?);
-        """, (key, val_str, now_str))
+            INSERT OR REPLACE INTO governance_config (key, value, updated_at, workspace_id)
+            VALUES (?, ?, ?, ?);
+        """, (key, val_str, now_str, workspace_id))
 
     # Log audit entry
     audit_detail = f"Config updated by {actor}: {updates}. Reason: {reason or 'N/A'}"
     cursor.execute("""
-        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp)
-        VALUES (?, ?, ?, ?);
-    """, ("POLICY_CHANGED", actor, audit_detail, now_str))
+        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp, workspace_id)
+        VALUES (?, ?, ?, ?, ?);
+    """, ("POLICY_CHANGED", actor, audit_detail, now_str, workspace_id))
 
     conn.commit()
     conn.close()
@@ -133,7 +145,8 @@ def record_governance_audit(
     event_type: str,
     actor: str,
     details: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> None:
     """Records an explicit governance event into SQLite governance_audit_logs."""
     ensure_governance_tables_exist(db_path)
@@ -142,16 +155,19 @@ def record_governance_audit(
     now_str = datetime.utcnow().isoformat() + "Z"
 
     cursor.execute("""
-        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp)
-        VALUES (?, ?, ?, ?);
-    """, (event_type, actor, details, now_str))
+        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp, workspace_id)
+        VALUES (?, ?, ?, ?, ?);
+    """, (event_type, actor, details, now_str, workspace_id))
 
     conn.commit()
     conn.close()
 
 
-def get_todays_automated_exposure(db_path: str = "data/recover_ai.db") -> float:
-    """Calculates today's total automated recovery exposure executed so far."""
+def get_todays_automated_exposure(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> float:
+    """Calculates today's total automated recovery exposure executed so far for a workspace."""
     ensure_governance_tables_exist(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -159,8 +175,9 @@ def get_todays_automated_exposure(db_path: str = "data/recover_ai.db") -> float:
 
     cursor.execute("""
         SELECT COALESCE(SUM(amount), 0.0) FROM revenue_events
-        WHERE (policy_decision = 'APPROVED: policy_v2_2026' OR policy_decision = 'AUTHORIZED: human_approved') AND timestamp LIKE ?;
-    """, (f"{today_str}%",))
+        WHERE (policy_decision = 'APPROVED: policy_v2_2026' OR policy_decision = 'AUTHORIZED: human_approved')
+        AND timestamp LIKE ? AND workspace_id = ?;
+    """, (f"{today_str}%", workspace_id))
     
     total = cursor.fetchone()[0]
     conn.close()
@@ -170,21 +187,13 @@ def get_todays_automated_exposure(db_path: str = "data/recover_ai.db") -> float:
 def evaluate_governance(
     case_data: Dict[str, Any],
     recommended_action: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> PolicyDecision:
     """
     Authoritative backend governance evaluation pipeline.
-
-    Checks:
-    1. Global Kill Switch
-    2. Per-action automation toggles
-    3. Max retry limit
-    4. Cooldown window
-    5. Per-customer intervention cap
-    6. Daily automated exposure cap
-    7. Human approval threshold (> ₹1,00,000 INR)
     """
-    config = get_governance_config(db_path)
+    config = get_governance_config(db_path, workspace_id=workspace_id)
     action = recommended_action.strip().upper()
     amount = float(case_data.get("amount", 0.0))
     customer_id = str(case_data.get("customer_id", "unknown"))
@@ -215,9 +224,7 @@ def evaluate_governance(
         )
 
     # 3. Retry Limit Check
-    retry_limit_ok = True
     if action == "RETRY" and attempt_count >= config.max_retries:
-        retry_limit_ok = False
         return PolicyDecision(
             decision="BLOCK",
             action=action,
@@ -229,9 +236,7 @@ def evaluate_governance(
 
     # 4. Cooldown Window Check
     cooldown_days = config.retry_cooldown_hours / 24.0
-    cooldown_ok = True
     if action == "RETRY" and days_since_last < cooldown_days:
-        cooldown_ok = False
         return PolicyDecision(
             decision="BLOCK",
             action=action,
@@ -242,7 +247,7 @@ def evaluate_governance(
         )
 
     # 5. Daily Automated Exposure Cap Check
-    todays_exp = get_todays_automated_exposure(db_path=db_path)
+    todays_exp = get_todays_automated_exposure(db_path=db_path, workspace_id=workspace_id)
     exposure_ok = (todays_exp + amount) <= config.max_daily_auto_exposure
     if not exposure_ok:
         return PolicyDecision(
@@ -263,7 +268,8 @@ def evaluate_governance(
             action=action,
             policy_version=config.policy_version,
             reason="Amount exceeds automatic execution threshold.",
-            db_path=db_path
+            db_path=db_path,
+            workspace_id=workspace_id
         )
 
         return PolicyDecision(
@@ -292,7 +298,8 @@ def create_approval_request(
     action: str,
     policy_version: str,
     reason: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> str:
     """Creates a human approval request in SQLite database with a 30-minute expiration window."""
     ensure_governance_tables_exist(db_path)
@@ -307,18 +314,18 @@ def create_approval_request(
     cursor.execute("""
         INSERT OR REPLACE INTO approval_requests (
             approval_id, case_id, customer_id, amount, action, policy_version,
-            status, created_at, expires_at, rejection_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            status, created_at, expires_at, rejection_reason, workspace_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """, (
         approval_id, case_id, customer_id, amount, action, policy_version,
-        "PENDING_APPROVAL", created_at, expires_at, reason
+        "PENDING_APPROVAL", created_at, expires_at, reason, workspace_id
     ))
 
     # Log to Audit Trail
     cursor.execute("""
-        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp)
-        VALUES (?, ?, ?, ?);
-    """, ("APPROVAL_REQUIRED", "SYSTEM", f"Approval required for case {case_id} (Amount: ₹{amount:,.2f}, Action: {action})", created_at))
+        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp, workspace_id)
+        VALUES (?, ?, ?, ?, ?);
+    """, ("APPROVAL_REQUIRED", "SYSTEM", f"Approval required for case {case_id} (Amount: ₹{amount:,.2f}, Action: {action})", created_at, workspace_id))
 
     conn.commit()
     conn.close()
@@ -326,23 +333,29 @@ def create_approval_request(
     return approval_id
 
 
-def get_pending_approvals(db_path: str = "data/recover_ai.db") -> List[Dict[str, Any]]:
-    """Returns active pending approval requests and automatically marks expired ones."""
+def get_pending_approvals(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> List[Dict[str, Any]]:
+    """Returns active pending approval requests for a workspace and auto-expires old ones."""
     ensure_governance_tables_exist(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     now_str = datetime.utcnow().isoformat() + "Z"
 
-    # Auto-expire approval requests older than 30 minutes
     cursor.execute("""
         UPDATE approval_requests
         SET status = 'APPROVAL_EXPIRED'
-        WHERE status = 'PENDING_APPROVAL' AND expires_at < ?;
-    """, (now_str,))
+        WHERE status = 'PENDING_APPROVAL' AND expires_at < ? AND workspace_id = ?;
+    """, (now_str, workspace_id))
     conn.commit()
 
-    cursor.execute("SELECT * FROM approval_requests WHERE status = 'PENDING_APPROVAL' ORDER BY created_at DESC;")
+    cursor.execute("""
+        SELECT * FROM approval_requests
+        WHERE status = 'PENDING_APPROVAL' AND workspace_id = ?
+        ORDER BY created_at DESC;
+    """, (workspace_id,))
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return rows
@@ -353,7 +366,8 @@ def decide_approval_request(
     decision: str,  # "APPROVE" or "REJECT"
     actor: str = "ADMIN",
     notes: Optional[str] = None,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """Processes manual human approval or rejection decision."""
     ensure_governance_tables_exist(db_path)
@@ -362,7 +376,7 @@ def decide_approval_request(
     cursor = conn.cursor()
     now_str = datetime.utcnow().isoformat() + "Z"
 
-    cursor.execute("SELECT * FROM approval_requests WHERE approval_id = ?;", (approval_id,))
+    cursor.execute("SELECT * FROM approval_requests WHERE approval_id = ? AND workspace_id = ?;", (approval_id, workspace_id))
     row = cursor.fetchone()
 
     if not row:
@@ -371,7 +385,6 @@ def decide_approval_request(
 
     req = dict(row)
 
-    # Check if expired
     if req["status"] == "PENDING_APPROVAL" and req["expires_at"] < now_str:
         cursor.execute("UPDATE approval_requests SET status = 'APPROVAL_EXPIRED' WHERE approval_id = ?;", (approval_id,))
         conn.commit()
@@ -388,29 +401,27 @@ def decide_approval_request(
     cursor.execute("""
         UPDATE approval_requests
         SET status = ?, decided_at = ?, decided_by = ?, rejection_reason = ?
-        WHERE approval_id = ?;
-    """, (new_status, now_str, actor, notes or decision.upper(), approval_id))
+        WHERE approval_id = ? AND workspace_id = ?;
+    """, (new_status, now_str, actor, notes or decision.upper(), approval_id, workspace_id))
 
-    # Log to Audit Trail
     audit_detail = f"Human decision by {actor} for case {req['case_id']} ({req['action']}, ₹{req['amount']:,.2f}): {new_status}"
     cursor.execute("""
-        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp)
-        VALUES (?, ?, ?, ?);
-    """, (event_name, actor, audit_detail, now_str))
+        INSERT INTO governance_audit_logs (event_type, actor, details, timestamp, workspace_id)
+        VALUES (?, ?, ?, ?, ?);
+    """, (event_name, actor, audit_detail, now_str, workspace_id))
 
-    # If APPROVED, update revenue_events case to READY/AUTHORIZED
     if decision.upper() == "APPROVE":
         cursor.execute("""
             UPDATE revenue_events
             SET policy_decision = 'AUTHORIZED: human_approved', outcome = 'READY'
-            WHERE event_id = ?;
-        """, (req["case_id"],))
+            WHERE event_id = ? AND workspace_id = ?;
+        """, (req["case_id"], workspace_id))
     else:
         cursor.execute("""
             UPDATE revenue_events
             SET policy_decision = 'BLOCKED: human_rejected', outcome = 'NO_ACTION'
-            WHERE event_id = ?;
-        """, (req["case_id"],))
+            WHERE event_id = ? AND workspace_id = ?;
+        """, (req["case_id"], workspace_id))
 
     conn.commit()
     conn.close()

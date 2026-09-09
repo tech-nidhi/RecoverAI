@@ -1,8 +1,5 @@
 """
-Production AI Operations Copilot Engine for RecoverAI Control Plane.
-
-Implements intent classification, multi-turn conversation context tracking, tool execution,
-structured evidence generation, hallucination protection, and governance boundary enforcement.
+Evidence-Backed Operational AI Copilot Engine for RecoverAI (Multi-Tenant Aware).
 """
 
 import re
@@ -25,6 +22,7 @@ from agent.copilot_tools import (
     simulate_policy_change,
     request_automation_pause,
 )
+from auth.tenancy import DEFAULT_WORKSPACE_ID
 
 
 def classify_copilot_intent(query: str, context: Optional[Dict[str, Any]] = None) -> str:
@@ -118,15 +116,16 @@ def process_copilot_query(
     query: str,
     conversation_id: str = "default_session",
     context: Optional[Dict[str, Any]] = None,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
-    Processes a merchant Copilot query through tool execution and structured evidence synthesis.
+    Processes a merchant Copilot query through workspace-scoped tool execution and structured evidence synthesis.
     """
     intent = classify_copilot_intent(query, context)
     entities = extract_entities(query, context)
 
-    # 1. GOVERNANCE BOUNDARY CHECK (Prevent direct policy mutation requests)
+    # 1. GOVERNANCE BOUNDARY CHECK
     q_low = query.lower()
     if (("disable" in q_low or "bypass" in q_low or "delete" in q_low or "turn off" in q_low) and ("policy" in q_low or "policies" in q_low or "governance" in q_low or "engine" in q_low)) or "bypass governance" in q_low:
         return {
@@ -151,13 +150,13 @@ def process_copilot_query(
             "tools_called": []
         }
 
-    # 3. MUTATING ACTION REQUEST (Requires explicit user confirmation flow)
+    # 3. MUTATING ACTION REQUEST
     if intent == "MUTATING_ACTION":
-        pause_tool_res = request_automation_pause(db_path=db_path, reason=query, actor="ADMIN")
+        pause_tool_res = request_automation_pause(db_path=db_path, reason=query, actor="ADMIN", workspace_id=workspace_id)
         return {
             "query": query,
             "intent": "MUTATING_ACTION",
-            "answer": "This action will pause all automated recovery execution across RecoverAI. Incoming Razorpay webhooks and audit logging will continue running in read-only observation mode.",
+            "answer": "This action will pause all automated recovery execution across RecoverAI for your workspace. Incoming Razorpay webhooks and audit logging will continue running in read-only observation mode.",
             "key_findings": [
                 "Target: Global Automation Kill Switch",
                 "Effect: Halts automated execution of retries, payment links, and reminders.",
@@ -173,7 +172,7 @@ def process_copilot_query(
     # 4. SIMULATION
     if intent == "SIMULATION":
         proposed_retries = entities.get("proposed_retries", 3)
-        sim_res = simulate_policy_change(db_path=db_path, proposed_max_retries=proposed_retries)
+        sim_res = simulate_policy_change(db_path=db_path, proposed_max_retries=proposed_retries, workspace_id=workspace_id)
         p_data = sim_res["projected_simulation"]
 
         return {
@@ -203,12 +202,12 @@ def process_copilot_query(
         tx_id = entities.get("transaction_id") or entities.get("case_id")
         
         if not tx_id:
-            top_cases_res = get_top_revenue_at_risk(db_path=db_path, limit=1)
+            top_cases_res = get_top_revenue_at_risk(db_path=db_path, limit=1, workspace_id=workspace_id)
             if top_cases_res["cases"]:
                 tx_id = top_cases_res["cases"][0]["event_id"]
 
         if tx_id:
-            trace_res = get_transaction_trace(db_path=db_path, transaction_id=tx_id)
+            trace_res = get_transaction_trace(db_path=db_path, transaction_id=tx_id, workspace_id=workspace_id)
             if trace_res.get("found"):
                 t_data = trace_res["data"]
                 return {
@@ -231,12 +230,11 @@ def process_copilot_query(
                     "tools_called": ["get_transaction_trace"]
                 }
             else:
-                # Hallucination Protection: Explicitly inform user that transaction was not found
                 return {
                     "query": query,
                     "intent": "TRANSACTION_TRACE",
-                    "answer": f"I couldn't find '{tx_id}' in the current RecoverAI event or recovery records. Please verify the transaction ID or check active cases.",
-                    "key_findings": [f"Target ID: '{tx_id}'", "Status: Not found in database"],
+                    "answer": f"I couldn't find '{tx_id}' in the current RecoverAI event or recovery records for your workspace. Please verify the transaction ID or check active cases.",
+                    "key_findings": [f"Target ID: '{tx_id}'", "Status: Not found in workspace database"],
                     "evidence": [],
                     "sources": ["RecoverAI Database Search"],
                     "tools_called": ["get_transaction_trace"]
@@ -244,7 +242,7 @@ def process_copilot_query(
 
     # 6. REVENUE RISK
     if intent == "REVENUE_RISK":
-        top_risk = get_top_revenue_at_risk(db_path=db_path, limit=5)
+        top_risk = get_top_revenue_at_risk(db_path=db_path, limit=5, workspace_id=workspace_id)
         cases = top_risk["cases"]
         if cases:
             c1 = cases[0]
@@ -264,7 +262,7 @@ def process_copilot_query(
 
     # 7. INTERVENTION ANALYSIS
     if intent == "INTERVENTION_ANALYSIS":
-        int_res = get_intervention_performance(db_path=db_path)
+        int_res = get_intervention_performance(db_path=db_path, workspace_id=workspace_id)
         ints = int_res["interventions"]
         top_int = ints[0] if ints else {"action": "PAYMENT_LINK", "observed_rate": 72.4, "baseline_rate": 37.2, "lift_percent": 154.0, "cases": 3842, "recovered": 510000.0}
 
@@ -290,7 +288,7 @@ def process_copilot_query(
 
     # 8. EXECUTION FAILURE INVESTIGATION
     if intent == "EXECUTION_FAILURE":
-        fail_res = get_execution_failures(db_path=db_path, limit=10)
+        fail_res = get_execution_failures(db_path=db_path, limit=10, workspace_id=workspace_id)
         failures = fail_res["failures"]
         count = fail_res["count"]
 
@@ -300,7 +298,7 @@ def process_copilot_query(
             findings = [f"• {f['action_type']} (Attempt {f['attempt_number']}) on {f['case_id']}: {f['status']} ({f.get('error_message') or 'N/A'})" for f in failures[:3]]
             ev_chips = [{"label": f"Case {f['case_id']}: {f['status']}", "case_id": f["case_id"]} for f in failures[:3]]
         else:
-            answer_text = "No failed recovery executions found in recent logs. Execution state machine success rate stands at 98.4%."
+            answer_text = "No failed recovery executions found in recent workspace logs. Execution state machine success rate stands at 98.4%."
             findings = ["Execution state machine is operating cleanly with zero recent failed dispatches."]
             ev_chips = [{"label": "Execution state: HEALTHY", "case_id": None}]
 
@@ -317,7 +315,7 @@ def process_copilot_query(
 
     # 9. POLICY EXPLANATION
     if intent == "POLICY_EXPLANATION":
-        pol_res = get_policy_decisions(db_path=db_path, limit=5)
+        pol_res = get_policy_decisions(db_path=db_path, limit=5, workspace_id=workspace_id)
         decisions = pol_res["decisions"]
 
         if decisions:
@@ -333,7 +331,7 @@ def process_copilot_query(
             }
         else:
             answer_text = "All recent recovery actions have successfully passed policy evaluation without policy blocks."
-            findings = ["Zero policy overrides or rule blocks recorded in current queue."]
+            findings = ["Zero policy overrides or rule blocks recorded in current workspace queue."]
             ev_chips = [{"label": "Policy Engine: 100% Approved", "case_id": None}]
             policy_exp = {
                 "ai_recommendation": "RETRY",
@@ -356,15 +354,15 @@ def process_copilot_query(
 
     # 10. SYSTEM HEALTH
     if intent == "SYSTEM_HEALTH":
-        gov_res = get_governance_status(db_path=db_path)
+        gov_res = get_governance_status(db_path=db_path, workspace_id=workspace_id)
         g_data = gov_res["data"]
-        fail_res = get_execution_failures(db_path=db_path, limit=5)
+        fail_res = get_execution_failures(db_path=db_path, limit=5, workspace_id=workspace_id)
 
         is_active = g_data["global_automation_active"]
         pending_app = g_data["pending_approvals_count"]
         fail_count = fail_res["count"]
 
-        answer_text = f"RecoverAI is operational. Global Automation Kill Switch is {'ACTIVE (Resumed)' if is_active else 'PAUSED'}. There are {pending_app} pending human approvals and {fail_count} execution failures requiring attention."
+        answer_text = f"RecoverAI is operational for your workspace. Global Automation Kill Switch is {'ACTIVE (Resumed)' if is_active else 'PAUSED'}. There are {pending_app} pending human approvals and {fail_count} execution failures requiring attention."
 
         return {
             "query": query,
@@ -387,11 +385,11 @@ def process_copilot_query(
         }
 
     # 11. DEFAULT RECOVERY ANALYSIS
-    m_res = get_recovery_metrics(db_path=db_path)
+    m_res = get_recovery_metrics(db_path=db_path, workspace_id=workspace_id)
     m_data = m_res["data"]
 
-    overall_rate = round((m_data['total_recovered'] / m_data['total_revenue_at_risk'] * 100.0), 1) if m_data['total_revenue_at_risk'] > 0 else 68.4
-    baseline_rate = round((m_data['estimated_baseline_recovery'] / m_data['total_revenue_at_risk'] * 100.0), 1) if m_data['total_revenue_at_risk'] > 0 else 44.2
+    overall_rate = round((m_data['total_recovered'] / m_data['total_revenue_at_risk'] * 100.0), 1) if m_data['total_revenue_at_risk'] > 0 else 0.0
+    baseline_rate = round((m_data['estimated_baseline_recovery'] / m_data['total_revenue_at_risk'] * 100.0), 1) if m_data['total_revenue_at_risk'] > 0 else 0.0
 
     return {
         "query": query,

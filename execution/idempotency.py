@@ -1,5 +1,5 @@
 """
-Action Execution Idempotency Engine, State Machine, and Provider Verification Service.
+Action Execution Idempotency Engine, State Machine, and Provider Verification Service (Multi-Tenant Aware).
 """
 
 import sqlite3
@@ -23,10 +23,12 @@ from execution.razorpay_client import (
     GatewayResponse,
 )
 from policy.governance import evaluate_governance, record_governance_audit
+from auth.tenancy import ensure_tenancy_tables_and_columns_exist, DEFAULT_WORKSPACE_ID
 
 
 def ensure_action_executions_table_exists(db_path: str = "data/recover_ai.db") -> None:
-    """Ensures action_executions table exists with UNIQUE constraint on idempotency_key."""
+    """Ensures action_executions table exists with UNIQUE constraint on idempotency_key and workspace_id."""
+    ensure_tenancy_tables_and_columns_exist(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -43,7 +45,8 @@ def ensure_action_executions_table_exists(db_path: str = "data/recover_ai.db") -
             provider_reference TEXT,
             provider_status TEXT,
             error_message TEXT,
-            retry_eligible INTEGER NOT NULL DEFAULT 1
+            retry_eligible INTEGER NOT NULL DEFAULT 1,
+            workspace_id TEXT DEFAULT 'ws_default'
         );
     """)
 
@@ -76,36 +79,44 @@ def row_to_action_record(row: Dict[str, Any]) -> IdempotentActionRecord:
 
 def get_action_record_by_key(
     idempotency_key: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Optional[IdempotentActionRecord]:
-    """Fetches an action execution record by idempotency key."""
+    """Fetches single action execution record by idempotency_key."""
     ensure_action_executions_table_exists(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM action_executions WHERE idempotency_key = ?;", (idempotency_key,))
+    cursor.execute("SELECT * FROM action_executions WHERE idempotency_key = ? AND workspace_id = ?;", (idempotency_key, workspace_id))
     row = cursor.fetchone()
     conn.close()
 
-    return row_to_action_record(dict(row)) if row else None
+    if not row:
+        return None
+    return row_to_action_record(dict(row))
 
 
 def get_action_records_for_case(
     case_id: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> List[IdempotentActionRecord]:
-    """Fetches all action execution records for a recovery case sorted by attempt number."""
+    """Fetches all historical action execution records for a case_id sorted by attempt_number ASC."""
     ensure_action_executions_table_exists(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM action_executions WHERE case_id = ? ORDER BY attempt_number ASC;", (case_id,))
-    rows = cursor.fetchall()
-    conn.close()
+    cursor.execute("""
+        SELECT * FROM action_executions
+        WHERE case_id = ? AND workspace_id = ?
+        ORDER BY attempt_number ASC;
+    """, (case_id, workspace_id))
 
-    return [row_to_action_record(dict(r)) for r in rows]
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return [row_to_action_record(r) for r in rows]
 
 
 def execute_action_idempotent(
@@ -114,12 +125,13 @@ def execute_action_idempotent(
     attempt_number: int = 1,
     amount: float = 0.0,
     customer_id: str = "unknown",
+    provider_payment_id: Optional[str] = None,
     simulate_timeout: bool = False,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> IdempotentActionRecord:
     """
     Executes a financial recovery action with strict idempotency and state machine tracking.
-    Guarantees no action with the same idempotency_key is ever executed twice.
     """
     ensure_action_executions_table_exists(db_path)
     
@@ -127,7 +139,7 @@ def execute_action_idempotent(
     idempotency_key = f"rc_{case_id}_{clean_action}_{attempt_number}"
 
     # 1. Idempotency Check: Return existing record if already completed (SUCCEEDED)
-    existing = get_action_record_by_key(idempotency_key, db_path=db_path)
+    existing = get_action_record_by_key(idempotency_key, db_path=db_path, workspace_id=workspace_id)
     if existing:
         if existing.status == "SUCCEEDED":
             return existing
@@ -143,16 +155,16 @@ def execute_action_idempotent(
             cursor.execute("""
                 INSERT INTO action_executions (
                     action_id, idempotency_key, case_id, action_type, status,
-                    attempt_number, started_at, retry_eligible
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    attempt_number, started_at, retry_eligible, workspace_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 action_id, idempotency_key, case_id, clean_action, "EXECUTING",
-                attempt_number, now_str, 1
+                attempt_number, now_str, 1, workspace_id
             ))
             conn.commit()
         except sqlite3.IntegrityError:
             conn.close()
-            rec = get_action_record_by_key(idempotency_key, db_path=db_path)
+            rec = get_action_record_by_key(idempotency_key, db_path=db_path, workspace_id=workspace_id)
             if rec:
                 return rec
             raise RuntimeError(f"Database integrity conflict for key {idempotency_key}")
@@ -163,7 +175,8 @@ def execute_action_idempotent(
             event_type="ACTION_EXECUTION_STARTED",
             actor="SYSTEM",
             details=f"Started execution of {clean_action} (Attempt {attempt_number}) for case {case_id} [key: {idempotency_key}]",
-            db_path=db_path
+            db_path=db_path,
+            workspace_id=workspace_id
         )
 
     # 3. Simulate Network Timeout / Ambiguous Gateway Outcome
@@ -176,14 +189,14 @@ def execute_action_idempotent(
         cursor.execute("""
             UPDATE action_executions
             SET status = 'UNKNOWN', completed_at = ?, provider_status = 'UNKNOWN', error_message = ?, retry_eligible = 1
-            WHERE action_id = ?;
-        """, (completed_at, err_msg, action_id))
+            WHERE action_id = ? AND workspace_id = ?;
+        """, (completed_at, err_msg, action_id, workspace_id))
         
         cursor.execute("""
             UPDATE revenue_events
             SET outcome = 'VERIFYING', reasoning_text = reasoning_text || ' [Ambiguous network timeout - provider state check required]'
-            WHERE event_id = ?;
-        """, (case_id,))
+            WHERE event_id = ? AND workspace_id = ?;
+        """, (case_id, workspace_id))
         
         conn.commit()
         conn.close()
@@ -192,10 +205,11 @@ def execute_action_idempotent(
             event_type="ACTION_EXECUTION_UNKNOWN",
             actor="SYSTEM",
             details=f"Ambiguous network timeout for case {case_id}. State set to UNKNOWN. Provider verification required before retry.",
-            db_path=db_path
+            db_path=db_path,
+            workspace_id=workspace_id
         )
 
-        return get_action_record_by_key(idempotency_key, db_path=db_path)
+        return get_action_record_by_key(idempotency_key, db_path=db_path, workspace_id=workspace_id)
 
     # 4. Normal Execution Path via Gateway Client
     temp_event = RevenueEvent(
@@ -241,10 +255,10 @@ def execute_action_idempotent(
     cursor.execute("""
         UPDATE action_executions
         SET status = ?, completed_at = ?, provider_reference = ?, provider_status = ?, error_message = ?, retry_eligible = ?
-        WHERE action_id = ?;
+        WHERE action_id = ? AND workspace_id = ?;
     """, (
         final_status, completed_at, resp.gateway_reference_id, provider_stat,
-        resp.message, 0 if resp.success else 1, action_id
+        resp.message, 0 if resp.success else 1, action_id, workspace_id
     ))
 
     rec_amount = amount if resp.success else 0.0
@@ -254,8 +268,8 @@ def execute_action_idempotent(
     cursor.execute("""
         UPDATE revenue_events
         SET outcome = ?, revenue_recovered = ?, did_recover = ?, executed_action = ?, attempt_count = ?
-        WHERE event_id = ?;
-    """, (outcome_str, rec_amount, did_rec_val, clean_action, attempt_number, case_id))
+        WHERE event_id = ? AND workspace_id = ?;
+    """, (outcome_str, rec_amount, did_rec_val, clean_action, attempt_number, case_id, workspace_id))
 
     conn.commit()
     conn.close()
@@ -264,19 +278,20 @@ def execute_action_idempotent(
         event_type=f"ACTION_EXECUTION_{final_status}",
         actor="SYSTEM",
         details=f"Completed {clean_action} attempt {attempt_number} for {case_id}: status={final_status}, ref={resp.gateway_reference_id}",
-        db_path=db_path
+        db_path=db_path,
+        workspace_id=workspace_id
     )
 
-    return get_action_record_by_key(idempotency_key, db_path=db_path)
+    return get_action_record_by_key(idempotency_key, db_path=db_path, workspace_id=workspace_id)
 
 
 def verify_provider_action_state(
     action_record: IdempotentActionRecord,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> ProviderVerificationResult:
     """
     Queries payment gateway to authoritatively verify if an ambiguous UNKNOWN action was actually executed.
-    Prevents duplicate financial execution on network timeout retries.
     """
     ensure_action_executions_table_exists(db_path)
     conn = sqlite3.connect(db_path)
@@ -284,8 +299,6 @@ def verify_provider_action_state(
 
     ref_id = action_record.provider_reference or f"ref_{action_record.case_id[:8]}"
 
-    # Simulate provider lookup check
-    # In test simulation: if case_id contains 'success' or attempt == 1 -> provider confirmed execution
     if "fail" in action_record.case_id.lower():
         provider_stat: ProviderStatus = "NOT_EXECUTED"
         msg = f"Razorpay provider verification confirmed transaction {ref_id} was NOT executed on gateway."
@@ -307,21 +320,21 @@ def verify_provider_action_state(
     cursor.execute("""
         UPDATE action_executions
         SET status = ?, provider_status = ?, completed_at = ?, retry_eligible = ?, error_message = ?
-        WHERE action_id = ?;
-    """, (new_status, provider_stat, now_str, retry_elig, msg, action_record.action_id))
+        WHERE action_id = ? AND workspace_id = ?;
+    """, (new_status, provider_stat, now_str, retry_elig, msg, action_record.action_id, workspace_id))
 
     if new_status == "SUCCEEDED":
         cursor.execute("""
             UPDATE revenue_events
             SET outcome = 'SUCCESS', did_recover = 1, revenue_recovered = amount
-            WHERE event_id = ?;
-        """, (action_record.case_id,))
+            WHERE event_id = ? AND workspace_id = ?;
+        """, (action_record.case_id, workspace_id))
     elif new_status == "MANUAL_REVIEW":
         cursor.execute("""
             UPDATE revenue_events
             SET outcome = 'MANUAL_REVIEW'
-            WHERE event_id = ?;
-        """, (action_record.case_id,))
+            WHERE event_id = ? AND workspace_id = ?;
+        """, (action_record.case_id, workspace_id))
 
     conn.commit()
     conn.close()
@@ -330,7 +343,8 @@ def verify_provider_action_state(
         event_type="PROVIDER_STATE_CHECKED",
         actor="SYSTEM",
         details=f"Provider verification for {action_record.case_id} [{action_record.idempotency_key}]: provider_status={provider_stat}, new_status={new_status}",
-        db_path=db_path
+        db_path=db_path,
+        workspace_id=workspace_id
     )
 
     return ProviderVerificationResult(
@@ -345,22 +359,19 @@ def execute_safe_retry(
     actor: str = "ADMIN",
     force_override: bool = False,
     simulate_timeout: bool = False,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> SafeRetryResponse:
     """
-    Executes a safe retry after enforcing:
-    1. Idempotency check on existing action executions
-    2. Provider state verification for UNKNOWN status
-    3. Policy Engine & Policy Governance enforcement (Global Kill Switch, Max Retries cap, 24h Cooldown)
+    Executes a safe retry after enforcing idempotency, provider verification, and policy governance rules.
     """
     ensure_action_executions_table_exists(db_path)
     
-    # 1. Fetch case details from revenue_events
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM revenue_events WHERE event_id = ?;", (case_id,))
+    cursor.execute("SELECT * FROM revenue_events WHERE event_id = ? AND workspace_id = ?;", (case_id, workspace_id))
     case_row = cursor.fetchone()
     conn.close()
 
@@ -371,7 +382,7 @@ def execute_safe_retry(
             status="NOT_FOUND",
             attempt_number=0,
             idempotency_key="",
-            message=f"Case '{case_id}' not found in database."
+            message=f"Case '{case_id}' not found in workspace database."
         )
 
     case_data = dict(case_row)
@@ -381,10 +392,9 @@ def execute_safe_retry(
     if act_type in ["STOP", "UNKNOWN"]:
         act_type = "PAYMENT_LINK"
 
-    existing_actions = get_action_records_for_case(case_id, db_path=db_path)
+    existing_actions = get_action_records_for_case(case_id, db_path=db_path, workspace_id=workspace_id)
     current_attempts = len(existing_actions)
 
-    # 2. Check if latest action is UNKNOWN -> Perform Provider Verification first!
     if existing_actions:
         latest = existing_actions[-1]
         if latest.status == "SUCCEEDED":
@@ -408,9 +418,9 @@ def execute_safe_retry(
                 execution_record=latest
             )
         elif latest.status == "UNKNOWN":
-            ver_res = verify_provider_action_state(latest, db_path=db_path)
+            ver_res = verify_provider_action_state(latest, db_path=db_path, workspace_id=workspace_id)
             if ver_res.provider_status == "CONFIRMED":
-                updated_rec = get_action_record_by_key(latest.idempotency_key, db_path=db_path)
+                updated_rec = get_action_record_by_key(latest.idempotency_key, db_path=db_path, workspace_id=workspace_id)
                 return SafeRetryResponse(
                     success=True,
                     case_id=case_id,
@@ -421,7 +431,7 @@ def execute_safe_retry(
                     execution_record=updated_rec
                 )
             elif ver_res.provider_status == "UNKNOWN":
-                updated_rec = get_action_record_by_key(latest.idempotency_key, db_path=db_path)
+                updated_rec = get_action_record_by_key(latest.idempotency_key, db_path=db_path, workspace_id=workspace_id)
                 return SafeRetryResponse(
                     success=False,
                     case_id=case_id,
@@ -434,7 +444,6 @@ def execute_safe_retry(
 
     next_attempt = current_attempts + 1
 
-    # 3. Policy Governance & Kill Switch Check
     if not force_override:
         gov_dec = evaluate_governance({
             "event_id": case_id,
@@ -442,14 +451,15 @@ def execute_safe_retry(
             "amount": amt,
             "attempt_count": next_attempt,
             "days_since_last_attempt": 0.1
-        }, act_type, db_path=db_path)
+        }, act_type, db_path=db_path, workspace_id=workspace_id)
 
         if gov_dec.decision == "BLOCK":
             record_governance_audit(
                 event_type="RETRY_BLOCKED",
                 actor=actor,
                 details=f"Safe retry blocked for case {case_id} by governance rule: {gov_dec.rejection_reason}",
-                db_path=db_path
+                db_path=db_path,
+                workspace_id=workspace_id
             )
             return SafeRetryResponse(
                 success=False,
@@ -464,7 +474,8 @@ def execute_safe_retry(
                 event_type="RETRY_APPROVAL_REQUIRED",
                 actor=actor,
                 details=f"Safe retry for high-value case {case_id} requires human approval ({gov_dec.approval_id})",
-                db_path=db_path
+                db_path=db_path,
+                workspace_id=workspace_id
             )
             return SafeRetryResponse(
                 success=False,
@@ -475,7 +486,6 @@ def execute_safe_retry(
                 message=f"Retry requires human approval (Approval ID: {gov_dec.approval_id})"
             )
 
-    # 4. Execute Idempotent Action with Next Attempt Number
     exec_rec = execute_action_idempotent(
         case_id=case_id,
         action_type=act_type,
@@ -483,14 +493,16 @@ def execute_safe_retry(
         amount=amt,
         customer_id=cust_id,
         simulate_timeout=simulate_timeout,
-        db_path=db_path
+        db_path=db_path,
+        workspace_id=workspace_id
     )
 
     record_governance_audit(
         event_type="RETRY_EXECUTION_COMPLETED",
         actor=actor,
         details=f"Completed retry attempt {next_attempt} for case {case_id} [key: {exec_rec.idempotency_key}], status={exec_rec.status}",
-        db_path=db_path
+        db_path=db_path,
+        workspace_id=workspace_id
     )
 
     return SafeRetryResponse(

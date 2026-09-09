@@ -1,5 +1,5 @@
 """
-Incremental ROI Attribution & Financial Impact Analytics Engine for RecoverAI.
+Incremental ROI Attribution & Financial Impact Analytics Engine for RecoverAI (Multi-Tenant Aware).
 """
 
 import sqlite3
@@ -12,6 +12,7 @@ from schema.attribution_schema import (
     EventTypePerformance,
     CaseAttributionTrace,
 )
+from auth.tenancy import DEFAULT_WORKSPACE_ID
 
 
 SEGMENT_BASELINE_RATES: Dict[str, float] = {
@@ -55,7 +56,8 @@ def compute_recovery_impact_metrics(
     db_path: str = "data/recover_ai.db",
     category: Optional[str] = None,
     action: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
     Authoritative backend calculation for RecoverAI Incremental ROI and Attribution Metrics.
@@ -67,8 +69,8 @@ def compute_recovery_impact_metrics(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    conditions = []
-    params = []
+    conditions = ["workspace_id = ?"]
+    params = [workspace_id]
 
     if category and category.strip() and category.upper() != "ALL":
         cat_val = category.strip().lower().replace(" ", "_")
@@ -84,7 +86,7 @@ def compute_recovery_impact_metrics(
         conditions.append("(customer_id LIKE ? OR event_id LIKE ? OR event_type LIKE ? OR failure_reason LIKE ?)")
         params.extend([f"%{s}%", f"%{s}%", f"%{s}%", f"%{s}%"])
 
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where_clause = f"WHERE {' AND '.join(conditions)}"
 
     cursor.execute(f"SELECT * FROM revenue_events {where_clause};", params)
     rows = [dict(r) for r in cursor.fetchall()]
@@ -111,13 +113,12 @@ def compute_recovery_impact_metrics(
     total_baseline = 0.0
     total_execution_cost = 0.0
 
-    # Dictionaries for intervention and event_type breakdown
     action_groups: Dict[str, Dict[str, Any]] = {}
     event_groups: Dict[str, Dict[str, Any]] = {}
 
     for r in rows:
         amt = float(r.get("amount") or 0.0)
-        rec = float(r.get("revenue_recovered") or 0.0) if r.get("outcome") == "SUCCESS" else 0.0
+        rec = float(r.get("revenue_recovered") or 0.0) if r.get("outcome") in ["SUCCESS", "RECOVERED"] else 0.0
         ev_type = str(r.get("event_type") or "payment_failure").strip().lower()
         act = str(r.get("executed_action") or "UNKNOWN").strip().upper()
 
@@ -130,7 +131,6 @@ def compute_recovery_impact_metrics(
         total_baseline += base_recovery
         total_execution_cost += cost
 
-        # Group by Action
         if act not in action_groups:
             action_groups[act] = {"cases": 0, "recovered": 0.0, "baseline": 0.0, "cost": 0.0, "risk": 0.0}
         action_groups[act]["cases"] += 1
@@ -139,7 +139,6 @@ def compute_recovery_impact_metrics(
         action_groups[act]["cost"] += cost
         action_groups[act]["risk"] += amt
 
-        # Group by Event Type
         if ev_type not in event_groups:
             event_groups[ev_type] = {"cases": 0, "risk": 0.0, "recovered": 0.0, "baseline": 0.0}
         event_groups[ev_type]["cases"] += 1
@@ -147,7 +146,6 @@ def compute_recovery_impact_metrics(
         event_groups[ev_type]["recovered"] += rec
         event_groups[ev_type]["baseline"] += base_recovery
 
-    # Top-Level Derived Calculations
     incremental_recovery = max(0.0, total_recovered - total_baseline)
     lift_percent = ((total_recovered - total_baseline) / total_baseline * 100.0) if total_baseline > 0 else 0.0
     net_value = max(0.0, incremental_recovery - total_execution_cost)
@@ -164,7 +162,6 @@ def compute_recovery_impact_metrics(
         estimated_roi=round(roi, 1)
     )
 
-    # Build Intervention Performance List
     interventions_list: List[Dict[str, Any]] = []
     for act, g in action_groups.items():
         if act in ["UNKNOWN", "STOP"]:
@@ -189,27 +186,28 @@ def compute_recovery_impact_metrics(
             confidence=confidence
         ).dict())
 
-    interventions_list.sort(key=lambda x: x["estimated_incremental"], reverse=True)
+    interventions_list.sort(key=lambda x: x["lift_percent"], reverse=True)
 
-    # Build Event Type Performance List
     event_types_list: List[Dict[str, Any]] = []
-    for ev_type, g in event_groups.items():
+    for ev, g in event_groups.items():
+        label = EVENT_TYPE_LABELS.get(ev, ev.upper().replace("_", " "))
         inc_rec = max(0.0, g["recovered"] - g["baseline"])
-        rec_rate = (g["recovered"] / g["risk"] * 100.0) if g["risk"] > 0 else 0.0
-        label = EVENT_TYPE_LABELS.get(ev_type, ev_type.upper().replace("_", " "))
+        obs_rate = (g["recovered"] / g["risk"] * 100.0) if g["risk"] > 0 else 0.0
+        base_rate = (g["baseline"] / g["risk"] * 100.0) if g["risk"] > 0 else 35.0
+        ev_lift = ((g["recovered"] - g["baseline"]) / g["baseline"] * 100.0) if g["baseline"] > 0 else 0.0
 
         event_types_list.append(EventTypePerformance(
-            event_type=ev_type,
+            event_type=ev,
             label=label,
             cases=g["cases"],
             revenue_at_risk=round(g["risk"], 2),
             recovered=round(g["recovered"], 2),
             estimated_baseline=round(g["baseline"], 2),
             estimated_incremental=round(inc_rec, 2),
-            recovery_rate=round(rec_rate, 1)
+            recovery_rate=round(obs_rate, 1)
         ).dict())
 
-    event_types_list.sort(key=lambda x: x["estimated_incremental"], reverse=True)
+    event_types_list.sort(key=lambda x: x["revenue_at_risk"], reverse=True)
 
     return {
         "metrics": metrics.dict(),
@@ -220,7 +218,8 @@ def compute_recovery_impact_metrics(
 
 def get_transaction_attribution_trace(
     event_id: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> CaseAttributionTrace:
     """Calculates transaction-level attribution details for a specific case."""
     if not os.path.exists(db_path):
@@ -230,16 +229,16 @@ def get_transaction_attribution_trace(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM revenue_events WHERE event_id = ?;", (event_id,))
+    cursor.execute("SELECT * FROM revenue_events WHERE (event_id = ? OR event_id LIKE ?) AND workspace_id = ?;", (event_id, f"%{event_id}%", workspace_id))
     row = cursor.fetchone()
     conn.close()
 
     if not row:
-        raise ValueError(f"Case '{event_id}' not found.")
+        raise ValueError(f"Case '{event_id}' not found in workspace.")
 
     r = dict(row)
     amt = float(r.get("amount") or 0.0)
-    rec = float(r.get("revenue_recovered") or 0.0) if r.get("outcome") == "SUCCESS" else 0.0
+    rec = float(r.get("revenue_recovered") or 0.0) if r.get("outcome") in ["SUCCESS", "RECOVERED"] else 0.0
     ev_type = str(r.get("event_type") or "payment_failure").strip().lower()
     act = str(r.get("executed_action") or "PAYMENT_LINK").strip().upper()
 

@@ -127,6 +127,35 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // Multi-tenant auth fetch helper
+    const authFetch = async (url, options = {}) => {
+      const token = localStorage.getItem('rai_session_token');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        headers['X-Session-Token'] = token;
+      }
+      return fetch(url, { ...options, headers });
+    };
+
+    const AngularRLogo = ({ size = 28, className = "" }) => (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={`inline-block shrink-0 ${className}`}
+      >
+        <path d="M3.5 3.5H9.5V28.5H3.5V3.5Z" fill="#D6A43A" />
+        <path d="M9.5 3.5H20.5L27 10L20.5 16.5H9.5V11.5H19.5L21.5 10L19.5 8.5H9.5V3.5Z" fill="#D6A43A" />
+        <path d="M13.5 16H19.5L27.5 28.5H20.5L13.5 18V16Z" fill="#D6A43A" />
+      </svg>
+    );
+
     // -------------------------------------------------------------------------
     // 1. TOP LIVE AUDIT TICKER COMPONENT
     // -------------------------------------------------------------------------
@@ -192,9 +221,8 @@
         setLoading(true);
         setConfirmMessage(null);
         try {
-          const res = await fetch('/copilot/query', {
+          const res = await authFetch('/copilot/query', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: targetQ })
           });
           const data = await res.json();
@@ -209,9 +237,8 @@
       const handleConfirmAction = async (actionType) => {
         setConfirmLoading(true);
         try {
-          const res = await fetch('/copilot/confirm', {
+          const res = await authFetch('/copilot/confirm', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action_type: actionType, actor: 'COPILOT_ADMIN' })
           });
           const data = await res.json();
@@ -234,7 +261,6 @@
             <span className="text-[10px] text-teal-success font-bold font-mono">● CONNECTED TO RECOVERY CONTROL PLANE</span>
           </div>
 
-          {/* Search Input Bar */}
           <div className="flex space-x-2">
             <input
               type="text"
@@ -253,7 +279,6 @@
             </button>
           </div>
 
-          {/* Suggested Preset Queries */}
           <div className="flex flex-wrap gap-2 text-[10px] text-text-muted">
             <span className="py-1 font-bold text-text-primary">Suggested Operations Queries:</span>
             {presets.map((p, idx) => (
@@ -267,7 +292,6 @@
             ))}
           </div>
 
-          {/* Loading Tool Execution State Indicator */}
           {loading && (
             <div className="bg-ledger-card-subtle p-3 border border-amber-gold/30 text-xs font-mono space-y-1 text-amber-gold">
               <div className="flex items-center space-x-2">
@@ -280,145 +304,41 @@
             </div>
           )}
 
-          {/* Confirmation Success Alert */}
           {confirmMessage && (
             <div className="bg-teal-success/10 border border-teal-success/40 p-3 text-xs text-teal-success font-mono font-bold">
               ✓ {confirmMessage}
             </div>
           )}
 
-          {/* Structured Evidence-Backed Response Display */}
           {!loading && response && (
             <div className="bg-ledger-card-subtle p-5 border border-ledger-border space-y-4 text-xs">
-              
-              {/* Intent & Header */}
               <div className="flex items-center justify-between border-b border-ledger-border/60 pb-2">
                 <span className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">
                   INTENT: {response.intent || 'RECOVERY_ANALYSIS'}
                 </span>
                 {response.tools_called && response.tools_called.length > 0 && (
                   <span className="text-[10px] text-text-muted font-mono">
-                    TOOLS USED: {response.tools_called.join(', ')}
+                    TOOLS EXECUTED: {response.tools_called.join(', ')}
                   </span>
                 )}
               </div>
 
-              {/* Answer Executive Summary */}
-              <div className="space-y-1">
-                <p className="text-text-primary font-sans leading-relaxed text-sm font-medium">
-                  {response.answer}
-                </p>
+              <div className="text-text-primary leading-relaxed font-sans text-xs whitespace-pre-line">
+                {response.answer || response.explanation}
               </div>
 
-              {/* Key Findings Bullet Points */}
-              {response.key_findings && response.key_findings.length > 0 && (
-                <div className="bg-ledger-bg p-3.5 border border-ledger-border space-y-1.5 font-mono text-[11px]">
-                  <div className="text-[10px] text-amber-gold font-bold uppercase tracking-wider">KEY OPERATIONAL FINDINGS</div>
-                  {response.key_findings.map((kf, idx) => (
-                    <div key={idx} className="text-text-primary">{kf.startsWith('•') || kf.startsWith('1.') ? kf : `• ${kf}`}</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Mutating Action Confirmation Panel */}
               {response.requires_confirmation && (
-                <div className="bg-amber-gold/10 border-2 border-amber-gold/50 p-4 space-y-3 font-mono">
-                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider flex items-center space-x-2">
-                    <span>⚠️ CONFIRMATION REQUIRED FOR STATE MUTATION</span>
-                  </div>
-                  <p className="text-xs text-text-primary">
-                    {response.action_preview?.confirmation_prompt || 'Do you want to confirm this state change?'}
-                  </p>
-                  <div className="flex space-x-3 pt-1">
-                    <button
-                      onClick={() => handleConfirmAction(response.action_preview?.action_type || 'PAUSE_AUTOMATION')}
-                      disabled={confirmLoading}
-                      className="px-4 py-2 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
-                    >
-                      {confirmLoading ? 'EXECUTING...' : '[ CONFIRM PAUSE ]'}
-                    </button>
-                    <button
-                      onClick={() => setResponse(prev => ({ ...prev, requires_confirmation: false }))}
-                      className="px-4 py-2 bg-ledger-card border border-ledger-border text-text-muted hover:text-text-primary text-xs uppercase transition"
-                    >
-                      [ CANCEL ]
-                    </button>
-                  </div>
+                <div className="bg-amber-gold/10 border border-amber-gold/40 p-3 flex items-center justify-between">
+                  <span className="text-amber-gold font-bold text-[11px]">Action requires explicit confirmation.</span>
+                  <button
+                    onClick={() => handleConfirmAction(response.action_type || 'PAUSE_AUTOMATION')}
+                    disabled={confirmLoading}
+                    className="px-3 py-1 bg-amber-gold text-ledger-bg font-bold text-[10px] uppercase hover:bg-amber-gold/90 transition"
+                  >
+                    {confirmLoading ? 'CONFIRMING...' : 'CONFIRM ACTION'}
+                  </button>
                 </div>
               )}
-
-              {/* Simulation Preview Component */}
-              {response.simulation_preview && (
-                <div className="bg-ledger-bg p-3 border border-ledger-border space-y-3 font-mono">
-                  <div className="flex items-center justify-between text-[10px] text-amber-gold font-bold uppercase tracking-wider">
-                    <span>COUNTERFACTUAL SIMULATION PREVIEW</span>
-                    <button onClick={scrollToSimulator} className="text-amber-gold hover:underline">
-                      OPEN FULL SIMULATOR →
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 text-center text-xs">
-                    <div className="bg-ledger-card p-2 border border-ledger-border">
-                      <span className="text-[10px] text-text-muted block">CURRENT MAX RETRIES</span>
-                      <span className="font-bold text-text-primary">{response.simulation_preview.current_policy.max_retry_attempts}</span>
-                    </div>
-                    <div className="bg-ledger-card p-2 border border-ledger-border">
-                      <span className="text-[10px] text-text-muted block">PROPOSED MAX RETRIES</span>
-                      <span className="font-bold text-teal-success">{response.simulation_preview.proposed_policy.max_retry_attempts}</span>
-                    </div>
-                    <div className="bg-teal-success/10 p-2 border border-teal-success/30">
-                      <span className="text-[10px] text-teal-success block">ESTIMATED LIFT</span>
-                      <span className="font-bold text-teal-success">{response.simulation_preview.projected_simulation.estimated_recovery_lift_pct}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Clickable Evidence Chips */}
-              {response.evidence && response.evidence.length > 0 && (
-                <div className="space-y-1.5 pt-2 border-t border-ledger-border">
-                  <div className="text-[10px] text-text-muted font-bold uppercase tracking-wider">SUPPORTING DATA EVIDENCE</div>
-                  <div className="flex flex-wrap gap-2">
-                    {response.evidence.map((ev, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => ev.case_id && onSelectCase(ev.case_id)}
-                        className="px-2.5 py-1 bg-ledger-bg border border-amber-gold/40 text-amber-gold text-[11px] font-mono hover:bg-amber-gold/10 transition"
-                      >
-                        [{ev.label}] {ev.case_id ? '➔' : ''}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Recommended Next Action */}
-              {response.recommended_action && (
-                <div className="bg-ledger-bg p-3 border border-ledger-border/60 text-xs font-mono">
-                  <span className="text-amber-gold font-bold uppercase text-[10px] block mb-0.5">RECOMMENDED NEXT STEP:</span>
-                  <span className="text-text-primary text-[11px]">{response.recommended_action}</span>
-                </div>
-              )}
-
-              {/* View Fact Sources Button */}
-              <div className="flex justify-between items-center text-[10px] text-text-muted pt-2 border-t border-ledger-border">
-                <span>EVIDENCE-GROUNDED CONTROL PLANE INTEL</span>
-                <button
-                  onClick={() => setShowSources(!showSources)}
-                  className="text-amber-gold hover:underline uppercase font-bold"
-                >
-                  {showSources ? 'HIDE SOURCES ▲' : 'VIEW SOURCES ▼'}
-                </button>
-              </div>
-
-              {showSources && response.sources && (
-                <div className="bg-ledger-bg p-3 border border-ledger-border text-[10px] font-mono space-y-1 text-text-muted">
-                  <div className="font-bold text-text-primary uppercase">VERIFIED DATASET SOURCES RECORDED:</div>
-                  {response.sources.map((s, idx) => (
-                    <div key={idx}>• {s}</div>
-                  ))}
-                </div>
-              )}
-
             </div>
           )}
         </div>
@@ -426,7 +346,888 @@
     }
 
     // -------------------------------------------------------------------------
-    // 3. DEDICATED AUDIT TRAIL VIEW COMPONENT
+    // 3. LANDING PAGE VIEW
+    // -------------------------------------------------------------------------
+    function LandingView({ onNavigate }) {
+      return (
+        <div className="max-w-7xl mx-auto px-6 py-16 font-jetbrains space-y-16">
+          <div className="text-center space-y-6 max-w-4xl mx-auto">
+            <div className="inline-flex items-center space-x-2 bg-amber-gold/10 border border-amber-gold/30 px-3.5 py-1.5 text-xs text-amber-gold font-bold uppercase tracking-widest">
+              <span className="w-2 h-2 rounded-full bg-amber-gold animate-pulse"></span>
+              <span>AUTONOMOUS REVENUE RECOVERY CONTROL PLANE FOR MERCHANTS</span>
+            </div>
+            <h1 className="font-serif-headline text-6xl sm:text-7xl text-text-primary leading-tight">
+              Recover lost revenue on <span className="italic text-amber-gold">autopilot</span>. Zero dev effort.
+            </h1>
+            <p className="font-sans text-base text-text-muted max-w-2xl mx-auto leading-relaxed">
+              RecoverAI ingests Razorpay payment failures, scores risk, enforces governance rules, and executes autonomous retry strategies to maximize recovery rate while protecting your customer relationship.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+              <button
+                onClick={() => onNavigate('signup')}
+                className="w-full sm:w-auto px-8 py-4 bg-amber-gold text-ledger-bg font-bold text-xs uppercase tracking-wider hover:bg-amber-gold/90 transition shadow-lg shadow-amber-gold/20"
+              >
+                CREATE MERCHANT ACCOUNT →
+              </button>
+              <button
+                onClick={() => onNavigate('login')}
+                className="w-full sm:w-auto px-8 py-4 border border-ledger-border text-text-primary font-bold text-xs uppercase tracking-wider hover:border-amber-gold hover:text-amber-gold transition"
+              >
+                SIGN IN TO WORKSPACE
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-8">
+            <div className="ledger-panel p-6 space-y-3">
+              <div className="text-amber-gold text-xs font-bold uppercase tracking-wider">01 // AUTOMATED WEBHOOK INGESTION</div>
+              <h3 className="font-serif-headline text-2xl text-text-primary">Instant Webhook Normalization</h3>
+              <p className="font-sans text-xs text-text-muted leading-relaxed">
+                Connect Razorpay webhooks in 60 seconds. Deduplicates payment failures and normalizes failure reasons across UPI, Cards, and Netbanking.
+              </p>
+            </div>
+            <div className="ledger-panel p-6 space-y-3">
+              <div className="text-amber-gold text-xs font-bold uppercase tracking-wider">02 // DETERMINISTIC POLICY ENGINE</div>
+              <h3 className="font-serif-headline text-2xl text-text-primary">Kill Switch & Exposure Caps</h3>
+              <p className="font-sans text-xs text-text-muted leading-relaxed">
+                Set safety limits, cooldown periods, and maximum retry attempts. Require manual human approval for high-value transactions above your threshold.
+              </p>
+            </div>
+            <div className="ledger-panel p-6 space-y-3">
+              <div className="text-amber-gold text-xs font-bold uppercase tracking-wider">03 // REVENUE COPILOT ANALYST</div>
+              <h3 className="font-serif-headline text-2xl text-text-primary">AI Control Plane Analyst</h3>
+              <p className="font-sans text-xs text-text-muted leading-relaxed">
+                Ask Copilot to investigate transaction drops, explain policy blocks, evaluate recovery lift, or pause automation on demand with full auditability.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. SIGNUP VIEW
+    // -------------------------------------------------------------------------
+    function SignupView({ onSuccess, onNavigate }) {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [fullName, setFullName] = useState('');
+      const [companyName, setCompanyName] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch('/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              password,
+              full_name: fullName,
+              company_name: companyName
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Signup failed');
+          localStorage.setItem('rai_session_token', data.session_token);
+          onSuccess(data);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="max-w-md mx-auto my-16 p-8 ledger-panel font-jetbrains space-y-6">
+          <div className="border-b border-ledger-border pb-4">
+            <div className="text-xs text-amber-gold font-bold uppercase tracking-wider">MERCHANT ONBOARDING</div>
+            <h2 className="font-serif-headline text-3xl text-text-primary mt-1">Create your RecoverAI Account</h2>
+          </div>
+
+          {error && (
+            <div className="bg-danger-red/10 border border-danger-red/40 p-3 text-xs text-danger-red font-mono">
+              ⚠️ {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4 text-xs font-mono">
+            <div>
+              <label className="block text-text-muted uppercase mb-1">Full Name</label>
+              <input
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="e.g. Jane Doe"
+                className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-text-muted uppercase mb-1">Merchant / Company Name</label>
+              <input
+                type="text"
+                required
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="e.g. Acme Tech Solutions"
+                className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-text-muted uppercase mb-1">Work Email</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@acme.com"
+                className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-text-muted uppercase mb-1">Password</label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition tracking-wider"
+            >
+              {loading ? 'CREATING WORKSPACE...' : 'CREATE ACCOUNT & WORKSPACE →'}
+            </button>
+          </form>
+
+          <div className="text-center text-xs text-text-muted pt-2">
+            Already registered?{' '}
+            <button onClick={() => onNavigate('login')} className="text-amber-gold underline hover:text-white">
+              Sign In
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. LOGIN VIEW
+    // -------------------------------------------------------------------------
+    function LoginView({ onSuccess, onNavigate }) {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Login failed');
+          localStorage.setItem('rai_session_token', data.session_token);
+          onSuccess(data);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="max-w-md mx-auto my-16 p-8 ledger-panel font-jetbrains space-y-6">
+          <div className="border-b border-ledger-border pb-4">
+            <div className="text-xs text-amber-gold font-bold uppercase tracking-wider">SECURE ACCESS</div>
+            <h2 className="font-serif-headline text-3xl text-text-primary mt-1">Sign in to RecoverAI</h2>
+          </div>
+
+          {error && (
+            <div className="bg-danger-red/10 border border-danger-red/40 p-3 text-xs text-danger-red font-mono">
+              ⚠️ {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4 text-xs font-mono">
+            <div>
+              <label className="block text-text-muted uppercase mb-1">Work Email</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@acme.com"
+                className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-text-muted uppercase">Password</label>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('forgot-password')}
+                  className="text-[10px] text-amber-gold hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition tracking-wider"
+            >
+              {loading ? 'AUTHENTICATING...' : 'SIGN IN →'}
+            </button>
+          </form>
+
+          <div className="text-center text-xs text-text-muted pt-2">
+            New merchant?{' '}
+            <button onClick={() => onNavigate('signup')} className="text-amber-gold underline hover:text-white">
+              Create an Account
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. FORGOT PASSWORD VIEW
+    // -------------------------------------------------------------------------
+    function ForgotPasswordView({ onNavigate }) {
+      const [email, setEmail] = useState('');
+      const [submitted, setSubmitted] = useState(false);
+      const [message, setMessage] = useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch('/auth/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+          });
+          const data = await res.json();
+          setMessage(data.message || 'Password reset link sent to your email.');
+          setSubmitted(true);
+        } catch (e) {
+          setMessage('Failed to process request.');
+        }
+      };
+
+      return (
+        <div className="max-w-md mx-auto my-16 p-8 ledger-panel font-jetbrains space-y-6">
+          <div className="border-b border-ledger-border pb-4">
+            <div className="text-xs text-amber-gold font-bold uppercase tracking-wider">ACCOUNT RECOVERY</div>
+            <h2 className="font-serif-headline text-3xl text-text-primary mt-1">Reset Your Password</h2>
+          </div>
+
+          {submitted ? (
+            <div className="space-y-4">
+              <div className="bg-teal-success/10 border border-teal-success/40 p-4 text-xs text-teal-success font-mono leading-relaxed">
+                ✓ {message}
+              </div>
+              <button
+                onClick={() => onNavigate('login')}
+                className="w-full py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+              >
+                RETURN TO SIGN IN
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4 text-xs font-mono">
+              <div>
+                <label className="block text-text-muted uppercase mb-1">Registered Work Email</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="jane@acme.com"
+                  className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+              >
+                SEND RESET LINK →
+              </button>
+            </form>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. 5-STEP ONBOARDING WIZARD
+    // -------------------------------------------------------------------------
+    function OnboardingWizard({ workspace, onComplete }) {
+      const [step, setStep] = useState(1);
+      const [razorpayKey, setRazorpayKey] = useState('rzp_test_recover_ai_991823');
+      const [razorpaySecret, setRazorpaySecret] = useState('••••••••••••••••');
+      const [maxRetries, setMaxRetries] = useState(3);
+      const [cooldown, setCooldown] = useState(24);
+      const [approvalLimit, setApprovalLimit] = useState(100000);
+      const [testWebhookResult, setTestWebhookResult] = useState(null);
+      const [testLoading, setTestLoading] = useState(false);
+      const [saving, setSaving] = useState(false);
+
+      const handleSaveGateway = async () => {
+        setSaving(true);
+        try {
+          await authFetch('/settings/workspace', {
+            method: 'POST',
+            body: JSON.stringify({
+              merchant_name: workspace?.name,
+              max_retries: maxRetries,
+              cooldown_hours: cooldown,
+              approval_threshold: approvalLimit
+            })
+          });
+          setStep(3);
+        } catch (e) {
+          console.error("Failed to save gateway config", e);
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const handleSendTestWebhook = async () => {
+        setTestLoading(true);
+        try {
+          const payload = {
+            event: 'payment.failed',
+            payload: {
+              payment: {
+                entity: {
+                  id: `pay_test_${Math.random().toString(36).substr(2, 9)}`,
+                  amount: 249900,
+                  currency: 'INR',
+                  status: 'failed',
+                  error_code: 'BAD_REQUEST_ERROR',
+                  error_description: 'Payment failed due to bank timeout',
+                  contact: '+919988776655',
+                  email: 'test@merchant.com'
+                }
+              }
+            }
+          };
+          const res = await authFetch('/webhooks/razorpay', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          setTestWebhookResult(data);
+        } catch (e) {
+          setTestWebhookResult({ status: 'error', detail: e.message });
+        } finally {
+          setTestLoading(false);
+        }
+      };
+
+      const handleFinishOnboarding = async () => {
+        try {
+          await authFetch('/onboarding/complete', {
+            method: 'POST',
+            body: JSON.stringify({
+              max_retries: maxRetries,
+              cooldown_hours: cooldown,
+              approval_threshold: approvalLimit
+            })
+          });
+          onComplete();
+        } catch (e) {
+          console.error("Failed to complete onboarding", e);
+        }
+      };
+
+      return (
+        <div className="max-w-4xl mx-auto my-12 p-8 ledger-panel font-jetbrains space-y-8">
+          <div className="border-b border-ledger-border pb-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs text-amber-gold font-bold uppercase tracking-widest">
+                MERCHANT ONBOARDING WIZARD // STEP {step} OF 5
+              </span>
+              <span className="text-[10px] text-teal-success font-bold font-mono">
+                ● ENVIRONMENT: SANDBOX
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {['1. Welcome', '2. Gateway', '3. Strategy', '4. Webhook Test', '5. Launch'].map((title, idx) => (
+                <div
+                  key={idx}
+                  className={`h-2 text-[10px] font-bold py-0.5 px-1 border transition text-center ${
+                    idx + 1 === step
+                      ? 'bg-amber-gold text-ledger-bg border-amber-gold'
+                      : idx + 1 < step
+                      ? 'bg-teal-success/20 text-teal-success border-teal-success/40'
+                      : 'bg-ledger-bg text-text-muted border-ledger-border'
+                  }`}
+                >
+                  {title}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {step === 1 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif-headline text-4xl text-text-primary">
+                  Welcome to RecoverAI, <span className="italic text-amber-gold">{workspace?.name || 'Merchant'}</span>!
+                </h2>
+                <p className="font-sans text-xs text-text-muted mt-2 leading-relaxed">
+                  Your workspace has been provisioned in <span className="text-amber-gold font-bold">SANDBOX</span> mode. In sandbox mode, you can safely test webhooks, configure deterministic recovery policies, and verify Copilot intelligence without touching live production transactions.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+                <div className="bg-ledger-card-subtle p-4 border border-ledger-border">
+                  <div className="text-amber-gold font-bold">● WORKSPACE ID</div>
+                  <div className="text-text-primary text-sm font-bold mt-1">{workspace?.id || 'ws_new'}</div>
+                  <div className="text-[10px] text-text-muted mt-1">Multi-tenant isolated datastore</div>
+                </div>
+                <div className="bg-ledger-card-subtle p-4 border border-ledger-border">
+                  <div className="text-teal-success font-bold">● DEFAULT POLICY</div>
+                  <div className="text-text-primary text-sm font-bold mt-1">Standard Recovery V1</div>
+                  <div className="text-[10px] text-text-muted mt-1">Max 3 retries, ₹1L approval limit</div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <button
+                  onClick={() => setStep(2)}
+                  className="px-6 py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+                >
+                  NEXT: CONNECT PAYMENT GATEWAY →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif-headline text-4xl text-text-primary">Connect Razorpay Sandbox</h2>
+                <p className="font-sans text-xs text-text-muted mt-2 leading-relaxed">
+                  Configure your payment gateway API credentials. Test keys allow sending synthetic failure events without processing real payments.
+                </p>
+              </div>
+
+              <div className="space-y-4 text-xs font-mono max-w-xl">
+                <div>
+                  <label className="block text-text-muted uppercase mb-1">Razorpay Key ID (Test)</label>
+                  <input
+                    type="text"
+                    value={razorpayKey}
+                    onChange={(e) => setRazorpayKey(e.target.value)}
+                    className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-muted uppercase mb-1">Razorpay Key Secret (Test)</label>
+                  <input
+                    type="password"
+                    value={razorpaySecret}
+                    onChange={(e) => setRazorpaySecret(e.target.value)}
+                    className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between pt-4">
+                <button
+                  onClick={() => setStep(1)}
+                  className="px-5 py-3 border border-ledger-border text-text-muted hover:text-text-primary text-xs uppercase font-bold"
+                >
+                  ← BACK
+                </button>
+                <button
+                  onClick={handleSaveGateway}
+                  disabled={saving}
+                  className="px-6 py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+                >
+                  {saving ? 'SAVING...' : 'NEXT: CONFIGURE RECOVERY RULES →'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif-headline text-4xl text-text-primary">Configure Recovery Strategy</h2>
+                <p className="font-sans text-xs text-text-muted mt-2 leading-relaxed">
+                  Set safety boundaries and execution limits for autonomous recovery actions.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
+                <div>
+                  <label className="block text-text-muted uppercase mb-1">Max Retry Attempts</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={maxRetries}
+                    onChange={(e) => setMaxRetries(parseInt(e.target.value) || 3)}
+                    className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-muted uppercase mb-1">Cooldown (Hours)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="72"
+                    value={cooldown}
+                    onChange={(e) => setCooldown(parseFloat(e.target.value) || 24)}
+                    className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-text-muted uppercase mb-1">Human Approval Threshold (₹)</label>
+                  <input
+                    type="number"
+                    step="10000"
+                    value={approvalLimit}
+                    onChange={(e) => setApprovalLimit(parseFloat(e.target.value) || 100000)}
+                    className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3 focus:border-amber-gold focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between pt-4">
+                <button
+                  onClick={() => setStep(2)}
+                  className="px-5 py-3 border border-ledger-border text-text-muted hover:text-text-primary text-xs uppercase font-bold"
+                >
+                  ← BACK
+                </button>
+                <button
+                  onClick={() => setStep(4)}
+                  className="px-6 py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+                >
+                  NEXT: TEST WEBHOOK INTEGRATION →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-serif-headline text-4xl text-text-primary">Webhook Test Integration</h2>
+                <p className="font-sans text-xs text-text-muted mt-2 leading-relaxed">
+                  Send a simulated Razorpay payment failure event to your workspace endpoint.
+                </p>
+              </div>
+
+              <div className="bg-ledger-card-subtle p-4 border border-ledger-border space-y-3 font-mono text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-text-muted">WEBHOOK ENDPOINT URL:</span>
+                  <span className="text-amber-gold font-bold">POST /webhooks/razorpay</span>
+                </div>
+                <button
+                  onClick={handleSendTestWebhook}
+                  disabled={testLoading}
+                  className="w-full py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+                >
+                  {testLoading ? 'SENDING TEST EVENT...' : '⚡ SEND TEST WEBHOOK EVENT'}
+                </button>
+              </div>
+
+              {testWebhookResult && (
+                <div className="bg-ledger-bg p-4 border border-ledger-border font-mono text-xs space-y-2">
+                  <div className="text-teal-success font-bold">✓ RESPONSE RECEIVED</div>
+                  <pre className="text-[11px] text-text-muted overflow-x-auto p-2 bg-ledger-card">
+                    {JSON.stringify(testWebhookResult, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-4">
+                <button
+                  onClick={() => setStep(3)}
+                  className="px-5 py-3 border border-ledger-border text-text-muted hover:text-text-primary text-xs uppercase font-bold"
+                >
+                  ← BACK
+                </button>
+                <button
+                  onClick={() => setStep(5)}
+                  className="px-6 py-3 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition"
+                >
+                  NEXT: READY SUMMARY →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 5 && (
+            <div className="space-y-6">
+              <div className="text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-teal-success/20 border border-teal-success flex items-center justify-center mx-auto text-teal-success font-bold text-xl">
+                  ✓
+                </div>
+                <h2 className="font-serif-headline text-4xl text-text-primary">Workspace Setup Complete!</h2>
+                <p className="font-sans text-xs text-text-muted max-w-lg mx-auto leading-relaxed">
+                  Your RecoverAI Merchant Control Plane is configured and active.
+                </p>
+              </div>
+
+              <div className="bg-ledger-card-subtle p-6 border border-ledger-border space-y-3 text-xs font-mono">
+                <div className="flex justify-between border-b border-ledger-border pb-2">
+                  <span className="text-text-muted">MERCHANT</span>
+                  <span className="text-text-primary font-bold">{workspace?.name}</span>
+                </div>
+                <div className="flex justify-between border-b border-ledger-border pb-2">
+                  <span className="text-text-muted">WORKSPACE ID</span>
+                  <span className="text-amber-gold font-bold">{workspace?.id}</span>
+                </div>
+                <div className="flex justify-between border-b border-ledger-border pb-2">
+                  <span className="text-text-muted">ENVIRONMENT</span>
+                  <span className="text-teal-success font-bold">SANDBOX</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-text-muted">MAX RETRIES</span>
+                  <span className="text-text-primary font-bold">{maxRetries} Attempts</span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleFinishOnboarding}
+                className="w-full py-4 bg-amber-gold text-ledger-bg font-bold text-xs uppercase hover:bg-amber-gold/90 transition tracking-wider shadow-lg shadow-amber-gold/20"
+              >
+                ENTER RECOVERAI CONTROL PLANE →
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. MERCHANT SETTINGS VIEW
+    // -------------------------------------------------------------------------
+    function SettingsView({ workspace, user, onUpdateWorkspace, onLogout, onNavigate }) {
+      const [activeSubTab, setActiveSubTab] = useState('api_keys');
+      const [apiKeys, setApiKeys] = useState([]);
+      const [newKeyName, setNewKeyName] = useState('');
+      const [newKeyEnv, setNewKeyEnv] = useState('SANDBOX');
+      const [createdRawKey, setCreatedRawKey] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      const fetchApiKeys = async () => {
+        try {
+          const res = await authFetch('/settings/api-keys');
+          const data = await res.json();
+          setApiKeys(data.api_keys || []);
+        } catch (e) {
+          console.error("Failed to fetch API keys", e);
+        }
+      };
+
+      useEffect(() => {
+        if (activeSubTab === 'api_keys') {
+          fetchApiKeys();
+        }
+      }, [activeSubTab]);
+
+      const handleGenerateApiKey = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+          const res = await authFetch('/settings/api-keys', {
+            method: 'POST',
+            body: JSON.stringify({ name: newKeyName || 'Secret Key', environment: newKeyEnv })
+          });
+          const data = await res.json();
+          setCreatedRawKey(data.raw_api_key);
+          setNewKeyName('');
+          fetchApiKeys();
+        } catch (err) {
+          console.error("Failed to generate API key", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleRevokeApiKey = async (keyId) => {
+        try {
+          await authFetch(`/settings/api-keys/${keyId}`, { method: 'DELETE' });
+          fetchApiKeys();
+        } catch (e) {
+          console.error("Failed to revoke API key", e);
+        }
+      };
+
+      return (
+        <div className="max-w-7xl mx-auto px-6 py-10 font-jetbrains space-y-8">
+          <div className="border-b border-ledger-border pb-4 flex justify-between items-end">
+            <div>
+              <div className="text-xs text-amber-gold font-bold uppercase tracking-wider">MERCHANT CONTROL PANEL</div>
+              <h1 className="font-serif-headline text-4xl text-text-primary mt-1">Workspace & Security Settings</h1>
+            </div>
+            <div className="text-xs text-text-muted font-mono">
+              Workspace ID: <span className="text-amber-gold font-bold">{workspace?.id}</span>
+            </div>
+          </div>
+
+          <div className="flex space-x-6 border-b border-ledger-border text-xs uppercase font-bold tracking-wider">
+            {['account', 'business', 'gateway', 'recovery_rules', 'api_keys'].map((t) => (
+              <button
+                key={t}
+                onClick={() => setActiveSubTab(t)}
+                className={`pb-3 border-b-2 transition ${
+                  activeSubTab === t ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'
+                }`}
+              >
+                {t.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+
+          {activeSubTab === 'api_keys' && (
+            <div className="space-y-8">
+              <div className="ledger-panel p-6 space-y-4">
+                <div className="text-xs text-amber-gold font-bold uppercase">Generate API Key</div>
+                <form onSubmit={handleGenerateApiKey} className="flex flex-col sm:flex-row gap-4 items-end text-xs font-mono">
+                  <div className="flex-1 w-full">
+                    <label className="block text-text-muted uppercase mb-1">Key Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Production Webhook Ingestion"
+                      value={newKeyName}
+                      onChange={(e) => setNewKeyName(e.target.value)}
+                      className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-2.5 focus:border-amber-gold focus:outline-none"
+                    />
+                  </div>
+                  <div className="w-full sm:w-48">
+                    <label className="block text-text-muted uppercase mb-1">Environment</label>
+                    <select
+                      value={newKeyEnv}
+                      onChange={(e) => setNewKeyEnv(e.target.value)}
+                      className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-2.5 focus:border-amber-gold focus:outline-none"
+                    >
+                      <option value="SANDBOX">SANDBOX</option>
+                      <option value="PRODUCTION">PRODUCTION</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-6 py-2.5 bg-amber-gold text-ledger-bg font-bold uppercase hover:bg-amber-gold/90 transition shrink-0"
+                  >
+                    {loading ? 'GENERATING...' : '+ GENERATE KEY'}
+                  </button>
+                </form>
+
+                {createdRawKey && (
+                  <div className="bg-amber-gold/10 border border-amber-gold p-4 text-xs font-mono space-y-2 mt-4">
+                    <div className="text-amber-gold font-bold uppercase">⚠️ SAVE YOUR API KEY NOW</div>
+                    <div className="text-text-muted text-[11px]">
+                      This raw API key will NOT be displayed again. Store it securely in your secret manager.
+                    </div>
+                    <div className="bg-ledger-bg p-3 border border-amber-gold/40 text-text-primary font-bold selection:bg-amber-gold">
+                      {createdRawKey}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="text-xs text-text-primary font-bold uppercase tracking-wider">ACTIVE API KEYS ({apiKeys.length})</div>
+                {apiKeys.length === 0 ? (
+                  <div className="ledger-panel p-8 text-center text-text-muted text-xs font-mono">
+                    No active API keys found for this workspace.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {apiKeys.map((k) => (
+                      <div key={k.key_id} className="ledger-panel p-4 flex items-center justify-between font-mono text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-3">
+                            <span className="font-bold text-text-primary">{k.name}</span>
+                            <span className={`px-2 py-0.5 text-[10px] font-bold border ${
+                              k.environment === 'PRODUCTION' ? 'bg-danger-red/10 text-danger-red border-danger-red/30' : 'bg-amber-gold/10 text-amber-gold border-amber-gold/30'
+                            }`}>
+                              {k.environment}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-text-muted">
+                            Prefix: <span className="text-text-primary">{k.key_prefix}••••••••</span> • Created: {new Date(k.created_at * 1000).toLocaleString()}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRevokeApiKey(k.key_id)}
+                          className="px-3 py-1.5 border border-danger-red/40 text-danger-red hover:bg-danger-red hover:text-white text-[11px] font-bold uppercase transition"
+                        >
+                          REVOKE KEY
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeSubTab === 'account' && (
+            <div className="ledger-panel p-6 space-y-4 max-w-xl text-xs font-mono">
+              <div className="text-xs text-amber-gold font-bold uppercase">Account Details</div>
+              <div>
+                <label className="block text-text-muted uppercase mb-1">User Email</label>
+                <input type="text" readOnly value={user?.email || 'admin@merchant.com'} className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3" />
+              </div>
+              <div>
+                <label className="block text-text-muted uppercase mb-1">Full Name</label>
+                <input type="text" readOnly value={user?.full_name || 'Merchant Admin'} className="w-full bg-ledger-bg border border-ledger-border text-text-primary p-3" />
+              </div>
+              <button onClick={onLogout} className="px-5 py-2.5 bg-danger-red/20 text-danger-red border border-danger-red/40 text-xs font-bold uppercase hover:bg-danger-red hover:text-white transition">
+                SIGN OUT OF WORKSPACE
+              </button>
+            </div>
+          )}
+
+          {(activeSubTab === 'business' || activeSubTab === 'gateway' || activeSubTab === 'recovery_rules') && (
+            <div className="ledger-panel p-8 text-center text-text-muted text-xs font-mono space-y-2">
+              <div className="text-amber-gold font-bold uppercase">● WORKSPACE SETTINGS ACTIVE</div>
+              <div>Workspace ID: {workspace?.id} • Name: {workspace?.name}</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. DEDICATED AUDIT TRAIL VIEW COMPONENT
     // -------------------------------------------------------------------------
     function AuditTrailView({ cases, onSelectCase }) {
       const [searchQuery, setSearchQuery] = useState('');
@@ -468,8 +1269,6 @@
 
       return (
         <div className="max-w-7xl mx-auto px-6 py-10 space-y-8 font-jetbrains">
-          
-          {/* PAGE HEADER & OPERATIONAL STATS */}
           <div className="space-y-6 border-b border-ledger-border pb-8">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
               <div>
@@ -494,7 +1293,6 @@
               </div>
             </div>
 
-            {/* OPERATIONAL SYSTEM STATS */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
               <div className="ledger-panel p-3.5 text-center">
                 <div className="text-[10px] text-text-muted uppercase font-bold">EVENTS TODAY</div>
@@ -519,7 +1317,6 @@
             </div>
           </div>
 
-          {/* FILTER BAR */}
           <div className="ledger-panel p-4 flex flex-wrap items-center gap-3 text-xs">
             <input
               type="text"
@@ -577,7 +1374,6 @@
             </div>
           </div>
 
-          {/* MAIN DENSE EVENT LEDGER TABLE */}
           <div id="audit-section" className="ledger-panel p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-ledger-border pb-3">
               <div className="text-xs text-amber-gold font-bold uppercase tracking-wider">
@@ -623,37 +1419,23 @@
               </table>
             </div>
           </div>
-
         </div>
       );
     }
 
-    const AngularRLogo = ({ size = 28, className = "" }) => (
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 32 32"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className={`inline-block shrink-0 ${className}`}
-      >
-        {/* Geometric Angular R Monogram (Option 2 Concept) */}
-        {/* Stem */}
-        <path d="M3.5 3.5H9.5V28.5H3.5V3.5Z" fill="#D6A43A" />
-        {/* Chamfered Upper Loop */}
-        <path d="M9.5 3.5H20.5L27 10L20.5 16.5H9.5V11.5H19.5L21.5 10L19.5 8.5H9.5V3.5Z" fill="#D6A43A" />
-        {/* Sharp Angular Diagonal Leg */}
-        <path d="M13.5 16H19.5L27.5 28.5H20.5L13.5 18V16Z" fill="#D6A43A" />
-      </svg>
-    );
-
     // -------------------------------------------------------------------------
-    // 4. MAIN RECOVERAI APPLICATION
+    // 10. MAIN RECOVERAI APPLICATION WITH MULTI-TENANT AUTH & ONBOARDING
     // -------------------------------------------------------------------------
     function App() {
       const getRouteFromLocation = () => {
         const path = window.location.pathname;
         const hash = window.location.hash.replace('#', '');
+        if (path.includes('landing') || hash.includes('landing')) return 'landing';
+        if (path.includes('signup') || hash.includes('signup')) return 'signup';
+        if (path.includes('login') || hash.includes('login')) return 'login';
+        if (path.includes('forgot-password') || hash.includes('forgot-password')) return 'forgot-password';
+        if (path.includes('onboarding') || hash.includes('onboarding')) return 'onboarding';
+        if (path.includes('settings') || hash.includes('settings')) return 'settings';
         if (path.includes('audit-trail') || hash.includes('audit-trail')) return 'audit';
         if (path.includes('recovery') || hash.includes('recovery')) return 'recovery';
         if (path.includes('policy-engine') || hash.includes('policy-engine')) return 'policy';
@@ -662,6 +1444,11 @@
       };
 
       const [activeTab, setActiveTab] = useState(getRouteFromLocation());
+      const [user, setUser] = useState(null);
+      const [workspace, setWorkspace] = useState(null);
+      const [authChecked, setAuthChecked] = useState(false);
+      const [showUserDropdown, setShowUserDropdown] = useState(false);
+
       const [brief, setBrief] = useState(null);
       const [summary, setSummary] = useState(null);
       const [cases, setCases] = useState([]);
@@ -680,9 +1467,27 @@
       const [totalPages, setTotalPages] = useState(1);
       const [loading, setLoading] = useState(true);
 
+      const checkAuthStatus = async () => {
+        try {
+          const res = await authFetch('/auth/me');
+          if (res.ok) {
+            const data = await res.json();
+            setUser(data.user);
+            setWorkspace(data.workspace);
+          } else {
+            setUser(null);
+            setWorkspace({ id: 'ws_default', name: 'Default Sandbox Merchant', environment: 'SANDBOX' });
+          }
+        } catch (e) {
+          console.error("Auth status check failed", e);
+        } finally {
+          setAuthChecked(true);
+        }
+      };
+
       const fetchImpactAnalytics = async () => {
         try {
-          const res = await fetch('/analytics/recovery-impact');
+          const res = await authFetch('/analytics/recovery-impact');
           const data = await res.json();
           setImpactData(data);
         } catch (e) {
@@ -692,7 +1497,7 @@
 
       const fetchExperiments = async () => {
         try {
-          const res = await fetch('/experiments');
+          const res = await authFetch('/experiments');
           const data = await res.json();
           setExperimentsData(data.experiments || []);
         } catch (e) {
@@ -702,7 +1507,7 @@
 
       const fetchGovernanceConfig = async () => {
         try {
-          const res = await fetch('/governance/config');
+          const res = await authFetch('/governance/config');
           const data = await res.json();
           setGovConfig(data);
         } catch (e) {
@@ -712,7 +1517,7 @@
 
       const fetchPendingApprovals = async () => {
         try {
-          const res = await fetch('/governance/approvals');
+          const res = await authFetch('/governance/approvals');
           const data = await res.json();
           setPendingApprovals(data.approvals || []);
         } catch (e) {
@@ -722,10 +1527,9 @@
 
       const handleToggleKillSwitch = async (active) => {
         try {
-          await fetch('/governance/kill-switch', {
+          await authFetch('/governance/kill-switch', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ active, actor: 'ADMIN', reason: active ? 'Manual resume' : 'Emergency safety pause' })
+            body: JSON.stringify({ active, actor: user?.email || 'ADMIN', reason: active ? 'Manual resume' : 'Emergency safety pause' })
           });
           fetchGovernanceConfig();
           setShowPauseModal(false);
@@ -736,10 +1540,9 @@
 
       const handleApprovalDecision = async (approvalId, decision) => {
         try {
-          await fetch(`/governance/approvals/${approvalId}/decision`, {
+          await authFetch(`/governance/approvals/${approvalId}/decision`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decision, actor: 'ADMIN' })
+            body: JSON.stringify({ decision, actor: user?.email || 'ADMIN' })
           });
           fetchPendingApprovals();
           fetchCases();
@@ -750,7 +1553,7 @@
 
       const fetchCopilotBrief = async () => {
         try {
-          const res = await fetch('/copilot/brief');
+          const res = await authFetch('/copilot/brief');
           const data = await res.json();
           setBrief(data);
         } catch (e) {
@@ -760,7 +1563,7 @@
 
       const fetchSummary = async () => {
         try {
-          const res = await fetch('/summary');
+          const res = await authFetch('/summary');
           const data = await res.json();
           setSummary(data);
         } catch (e) {
@@ -770,7 +1573,7 @@
 
       const fetchSimulator = async () => {
         try {
-          const res = await fetch('/simulator');
+          const res = await authFetch('/simulator');
           const data = await res.json();
           setSimulator(data);
         } catch (e) {
@@ -786,7 +1589,7 @@
           if (actionFilter) url += `&action=${encodeURIComponent(actionFilter)}`;
           if (outcomeFilter) url += `&outcome=${encodeURIComponent(outcomeFilter)}`;
           if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
-          const res = await fetch(url);
+          const res = await authFetch(url);
           const data = await res.json();
           setCases(data.cases || []);
           setTotalPages(data.total_pages || 1);
@@ -797,7 +1600,30 @@
         }
       };
 
+      const handleLoadDemoData = async () => {
+        try {
+          await authFetch('/workspace/demo-data', { method: 'POST' });
+          fetchCopilotBrief();
+          fetchSummary();
+          fetchCases();
+          fetchImpactAnalytics();
+        } catch (e) {
+          console.error("Failed to load demo data", e);
+        }
+      };
+
+      const handleLogout = async () => {
+        try {
+          await authFetch('/auth/logout', { method: 'POST' });
+        } catch (e) {}
+        localStorage.removeItem('rai_session_token');
+        setUser(null);
+        setWorkspace({ id: 'ws_default', name: 'Default Sandbox Merchant', environment: 'SANDBOX' });
+        navigateToRoute('landing', '/landing', null);
+      };
+
       useEffect(() => {
+        checkAuthStatus();
         fetchCopilotBrief();
         fetchSummary();
         fetchSimulator();
@@ -809,13 +1635,6 @@
         const syncLocation = () => {
           const r = getRouteFromLocation();
           setActiveTab(r);
-          setTimeout(() => {
-            if (r === 'command_center') window.scrollTo({ top: 0, behavior: 'smooth' });
-            else if (r === 'recovery') document.getElementById('cases-section')?.scrollIntoView({ behavior: 'smooth' });
-            else if (r === 'policy') document.getElementById('policy-section')?.scrollIntoView({ behavior: 'smooth' });
-            else if (r === 'audit') document.getElementById('audit-section')?.scrollIntoView({ behavior: 'smooth' });
-            else if (r === 'simulator') document.getElementById('simulator-section')?.scrollIntoView({ behavior: 'smooth' });
-          }, 30);
         };
         syncLocation();
         window.addEventListener('popstate', syncLocation);
@@ -828,12 +1647,12 @@
 
       useEffect(() => {
         fetchCases();
-      }, [page, categoryFilter, actionFilter, outcomeFilter, searchQuery]);
+      }, [page, categoryFilter, actionFilter, outcomeFilter, searchQuery, workspace?.id]);
 
       const handleSelectCaseById = async (eventId) => {
         if (!eventId) return;
         try {
-          const res = await fetch(`/cases/${eventId}`);
+          const res = await authFetch(`/cases/${eventId}`);
           const detail = await res.json();
           setSelectedCase(detail);
         } catch (e) {
@@ -843,12 +1662,10 @@
 
       const navigateToRoute = (tabKey, routePath, targetId) => {
         setActiveTab(tabKey);
-        window.history.pushState({}, '', routePath);
+        window.history.pushState({}, '', routePath || `/#${tabKey}`);
         if (targetId) {
           const el = document.getElementById(targetId);
-          if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -856,8 +1673,6 @@
 
       return (
         <div className="relative z-10 min-h-screen bg-ledger-bg text-text-primary">
-          
-          {/* Top Live Ticker Bar */}
           <AuditTicker />
 
           {/* Primary Navigation Bar */}
@@ -872,8 +1687,8 @@
                 </span>
               </div>
 
-              {/* Primary Navigation Links */}
-              <div className="hidden md:flex items-center space-x-8 font-jetbrains text-xs uppercase font-bold tracking-wider">
+              {/* Navigation Links */}
+              <div className="hidden md:flex items-center space-x-6 font-jetbrains text-xs uppercase font-bold tracking-wider">
                 <button
                   onClick={() => navigateToRoute('command_center', '/command-center', null)}
                   className={`pb-1 border-b-2 transition ${activeTab === 'command_center' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
@@ -904,41 +1719,101 @@
                 >
                   SIMULATOR
                 </button>
+                <button
+                  onClick={() => navigateToRoute('settings', '/settings', null)}
+                  className={`pb-1 border-b-2 transition ${activeTab === 'settings' ? 'border-amber-gold text-amber-gold' : 'border-transparent text-text-muted hover:text-text-primary'}`}
+                >
+                  SETTINGS
+                </button>
               </div>
 
-              <div className="flex items-center space-x-3">
-                {govConfig?.global_automation_active ? (
-                  <div className="flex items-center space-x-2 bg-teal-success/10 border border-teal-success/30 px-3 py-1.5 font-jetbrains text-xs">
-                    <span className="w-2 h-2 rounded-full bg-teal-success animate-pulse"></span>
-                    <span className="text-teal-success font-bold uppercase">● AUTOMATION ACTIVE</span>
+              {/* Right Side Auth / Workspace Menu */}
+              <div className="flex items-center space-x-3 font-jetbrains">
+                <span className="hidden sm:inline-block px-2.5 py-1 bg-amber-gold/10 border border-amber-gold/40 text-amber-gold text-[10px] font-bold uppercase tracking-wider">
+                  ● SANDBOX
+                </span>
+
+                {user ? (
+                  <div className="relative">
                     <button
-                      onClick={() => setShowPauseModal(true)}
-                      className="ml-2 text-[10px] bg-danger-red/20 text-danger-red border border-danger-red/40 px-2 py-0.5 font-bold hover:bg-danger-red hover:text-white transition uppercase"
+                      onClick={() => setShowUserDropdown(!showUserDropdown)}
+                      className="flex items-center space-x-2 bg-ledger-card px-3 py-1.5 border border-ledger-border hover:border-amber-gold text-xs font-bold transition"
                     >
-                      PAUSE AUTOMATION
+                      <span className="text-amber-gold font-mono">{workspace?.name || 'Workspace'}</span>
+                      <span className="text-text-muted text-[10px]">▼</span>
                     </button>
+
+                    {showUserDropdown && (
+                      <div className="absolute right-0 mt-2 w-56 bg-ledger-card border border-ledger-border shadow-xl z-50 p-2 space-y-1 text-xs font-mono">
+                        <div className="p-2 border-b border-ledger-border text-[11px] text-text-muted">
+                          Signed in as <span className="text-text-primary font-bold">{user.email}</span>
+                        </div>
+                        <button
+                          onClick={() => { setShowUserDropdown(false); navigateToRoute('settings', '/settings', null); }}
+                          className="w-full text-left p-2 hover:bg-amber-gold/10 hover:text-amber-gold transition text-text-primary"
+                        >
+                          ⚙️ Merchant Settings
+                        </button>
+                        <button
+                          onClick={() => { setShowUserDropdown(false); navigateToRoute('onboarding', '/onboarding', null); }}
+                          className="w-full text-left p-2 hover:bg-amber-gold/10 hover:text-amber-gold transition text-text-primary"
+                        >
+                          🚀 Onboarding Wizard
+                        </button>
+                        <button
+                          onClick={() => { setShowUserDropdown(false); handleLogout(); }}
+                          className="w-full text-left p-2 hover:bg-danger-red/20 text-danger-red transition font-bold border-t border-ledger-border"
+                        >
+                          🚪 Sign Out
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="flex items-center space-x-2 bg-danger-red/10 border border-danger-red/30 px-3 py-1.5 font-jetbrains text-xs">
-                    <span className="w-2 h-2 rounded-full bg-danger-red animate-ping"></span>
-                    <span className="text-danger-red font-bold uppercase">AUTOMATION PAUSED</span>
+                  <div className="flex items-center space-x-2 text-xs">
                     <button
-                      onClick={() => handleToggleKillSwitch(true)}
-                      className="ml-2 text-[10px] bg-teal-success text-ledger-bg font-bold px-2 py-0.5 hover:bg-teal-success/90 transition uppercase"
+                      onClick={() => navigateToRoute('login', '/login', null)}
+                      className="px-3 py-1.5 border border-ledger-border text-text-primary hover:border-amber-gold transition"
                     >
-                      RESUME AUTOMATION
+                      SIGN IN
+                    </button>
+                    <button
+                      onClick={() => navigateToRoute('signup', '/signup', null)}
+                      className="px-3.5 py-1.5 bg-amber-gold text-ledger-bg font-bold hover:bg-amber-gold/90 transition uppercase"
+                    >
+                      GET STARTED
                     </button>
                   </div>
                 )}
-                <button
-                  onClick={() => navigateToRoute('command_center', '/command-center', 'copilot-section')}
-                  className="font-jetbrains text-xs font-bold px-4 py-2 bg-amber-gold text-ledger-bg hover:bg-amber-gold/90 transition uppercase tracking-wider"
-                >
-                  ASK COPILOT →
-                </button>
               </div>
             </div>
           </nav>
+
+          {/* FIRST TIME SETUP BANNER */}
+          {activeTab !== 'landing' && activeTab !== 'signup' && activeTab !== 'login' && activeTab !== 'onboarding' && (
+            <div className="bg-amber-gold/10 border-b border-amber-gold/30 py-2.5 font-jetbrains text-xs">
+              <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <div className="flex items-center space-x-2 text-amber-gold">
+                  <span className="w-2 h-2 rounded-full bg-amber-gold animate-ping"></span>
+                  <span>MERCHANT WORKSPACE: <strong>{workspace?.name}</strong> ({workspace?.id})</span>
+                </div>
+                <div className="flex items-center space-x-3 text-[11px]">
+                  <button
+                    onClick={handleLoadDemoData}
+                    className="px-3 py-1 bg-amber-gold text-ledger-bg font-bold uppercase hover:bg-amber-gold/90 transition"
+                  >
+                    ⚡ LOAD DEMO DATA
+                  </button>
+                  <button
+                    onClick={() => navigateToRoute('onboarding', '/onboarding', null)}
+                    className="px-3 py-1 border border-amber-gold/50 text-amber-gold font-bold uppercase hover:bg-amber-gold/20 transition"
+                  >
+                    🚀 ONBOARDING WIZARD
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* EMERGENCY KILL SWITCH CONFIRMATION MODAL */}
           {showPauseModal && (
@@ -970,12 +1845,24 @@
             </div>
           )}
 
-          {/* DEDICATED AUDIT TRAIL VIEW VS MAIN RECOVERY & COMMAND CENTER VIEW */}
-          {activeTab === 'audit' ? (
+          {/* ROUTED VIEWS */}
+          {activeTab === 'landing' ? (
+            <LandingView onNavigate={(route) => navigateToRoute(route, `/${route}`, null)} />
+          ) : activeTab === 'signup' ? (
+            <SignupView onSuccess={(data) => { setUser(data.user); setWorkspace(data.workspace); navigateToRoute('onboarding', '/onboarding', null); }} onNavigate={(route) => navigateToRoute(route, `/${route}`, null)} />
+          ) : activeTab === 'login' ? (
+            <LoginView onSuccess={(data) => { setUser(data.user); setWorkspace(data.workspace); navigateToRoute('command_center', '/command-center', null); }} onNavigate={(route) => navigateToRoute(route, `/${route}`, null)} />
+          ) : activeTab === 'forgot-password' ? (
+            <ForgotPasswordView onNavigate={(route) => navigateToRoute(route, `/${route}`, null)} />
+          ) : activeTab === 'onboarding' ? (
+            <OnboardingWizard workspace={workspace} onComplete={() => navigateToRoute('command_center', '/command-center', null)} />
+          ) : activeTab === 'settings' ? (
+            <SettingsView workspace={workspace} user={user} onLogout={handleLogout} onNavigate={(route) => navigateToRoute(route, `/${route}`, null)} />
+          ) : activeTab === 'audit' ? (
             <AuditTrailView cases={cases} onSelectCase={handleSelectCaseById} />
           ) : (
             <>
-              {/* PENDING HUMAN APPROVALS BANNER (> ₹1,00,000 THRESHOLD) */}
+              {/* PENDING HUMAN APPROVALS BANNER */}
               {pendingApprovals.length > 0 && (
                 <section className="max-w-7xl mx-auto px-6 pt-6">
                   <div className="ledger-panel p-5 border-l-4 border-l-amber-gold bg-amber-gold/5 font-jetbrains space-y-4">
@@ -1022,13 +1909,13 @@
                 </section>
               )}
 
-              {/* HERO SECTION: TODAY'S RECOVERY BRIEF */}
+              {/* HERO SECTION */}
               <section className="max-w-7xl mx-auto px-6 py-12 border-b border-ledger-border">
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
                   <div>
                     <div className="inline-flex items-center space-x-2 font-jetbrains text-xs text-amber-gold font-bold uppercase tracking-widest mb-1">
                       <span className="w-2 h-2 rounded-full bg-amber-gold animate-ping"></span>
-                      <span>TODAY'S RECOVERY BRIEF</span>
+                      <span>TODAY'S RECOVERY BRIEF // WORKSPACE: {workspace?.name}</span>
                     </div>
                     <h1 className="font-serif-headline text-5xl sm:text-6xl text-text-primary leading-[0.98]">
                       Your revenue, <span className="italic text-amber-gold">understood.</span>
@@ -1062,7 +1949,7 @@
                   <div className="ledger-panel p-5 border-l-4 border-l-amber-gold">
                     <div className="text-[10px] text-text-muted uppercase tracking-wider">POTENTIALLY RECOVERABLE</div>
                     <div className="text-3xl font-bold text-amber-gold mt-1">
-                      ₹{(brief?.metrics.potentially_recoverable ? brief.metrics.potentially_recoverable / 100000 : 31.8).toFixed(1)}L
+                      ₹{(brief?.metrics?.potentially_recoverable ? brief.metrics.potentially_recoverable / 100000 : 31.8).toFixed(1)}L
                     </div>
                     <div className="text-[11px] text-amber-gold/80 mt-2">
                       73.8% of revenue at risk
@@ -1082,16 +1969,18 @@
                   <div className="ledger-panel p-5">
                     <div className="text-[10px] text-text-muted uppercase tracking-wider">RECOVERY EFFICIENCY</div>
                     <div className="text-3xl font-bold text-text-primary mt-1">
-                      ₹{brief?.metrics.recovery_efficiency.toLocaleString('en-IN') || '29,491'}
+                      ₹{brief?.metrics?.recovery_efficiency ? brief.metrics.recovery_efficiency.toLocaleString('en-IN') : '29,491'}
                     </div>
                     <div className="text-[11px] text-text-muted mt-2">
                       Actual recovered per intervention
                     </div>
                   </div>
                 </div>
+              </section>
 
-                {/* RECOVERY INTELLIGENCE & INCREMENTAL ROI ATTRIBUTION SECTION */}
-                <div className="mt-8 ledger-panel p-6 border-t-2 border-t-amber-gold font-jetbrains space-y-6">
+              {/* RECOVERY INTELLIGENCE & ATTRIBUTION SECTION */}
+              <section className="max-w-7xl mx-auto px-6 py-8">
+                <div className="ledger-panel p-6 border-t-2 border-t-amber-gold font-jetbrains space-y-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-ledger-border pb-4 gap-2">
                     <div>
                       <div className="text-xs text-amber-gold uppercase font-bold tracking-widest flex items-center">
@@ -1146,196 +2035,6 @@
                       </div>
                     </div>
                   </div>
-
-                  {/* INTERVENTION PERFORMANCE BREAKDOWN TABLE */}
-                  {impactData?.interventions && impactData.interventions.length > 0 && (
-                    <div className="space-y-3 pt-2">
-                      <div className="text-xs text-text-primary uppercase font-bold tracking-widest border-b border-ledger-border pb-2">
-                        INTERVENTION PERFORMANCE & LIFT
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {impactData.interventions.map((item) => (
-                          <div key={item.action} className="bg-ledger-card p-3.5 border border-ledger-border space-y-2">
-                            <div className="flex items-center justify-between text-xs font-bold text-text-primary">
-                              <span>{item.action}</span>
-                              <span className="text-teal-success font-mono">+{item.lift_percent}% Lift</span>
-                            </div>
-                            <div className="text-[11px] text-text-muted space-y-0.5">
-                              <div>Recovered: <span className="text-text-primary font-bold">₹{(item.recovered / 100000).toFixed(1)}L</span></div>
-                              <div>Incremental: <span className="text-teal-success font-bold">₹{(item.estimated_incremental / 100000).toFixed(1)}L</span></div>
-                              <div>Observed Rate: <span className="text-text-primary font-bold">{item.observed_rate}%</span> (vs {item.baseline_rate}% baseline)</div>
-                              <div>Sample Size: <span className="text-text-muted font-bold">{item.sample_size} cases</span></div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* RECOVERY STRATEGY EXPERIMENTS SECTION */}
-                {experimentsData && experimentsData.length > 0 && (
-                  <div className="mt-6 ledger-panel p-6 border-t-2 border-t-teal-success font-jetbrains space-y-5">
-                    <div className="flex items-center justify-between border-b border-ledger-border pb-3">
-                      <div>
-                        <div className="text-xs text-teal-success uppercase font-bold tracking-widest flex items-center">
-                          <span className="w-2 h-2 rounded-full bg-teal-success animate-pulse mr-2"></span>
-                          RECOVERY EXPERIMENTS & STRATEGY COMPARISONS
-                        </div>
-                        <h3 className="font-serif-headline text-xl text-text-primary mt-0.5">Control vs Treatment Strategy Experiments</h3>
-                      </div>
-                      <span className="text-[10px] text-text-muted">A/B STRATEGY IMPACT EVALUATION</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                      {experimentsData.map((exp) => (
-                        <div key={exp.experiment_id} className="bg-ledger-card p-4 border border-ledger-border space-y-3 text-xs">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-text-primary">{exp.name}</span>
-                            <span className="px-2 py-0.5 bg-teal-success/10 text-teal-success border border-teal-success/30 text-[10px] font-bold">
-                              +{exp.absolute_lift} pp (+{exp.relative_lift}%)
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 bg-ledger-bg p-2.5 border border-ledger-border text-[11px]">
-                            <div>
-                              <div className="text-text-muted font-bold">CONTROL</div>
-                              <div className="text-text-muted">{exp.control_strategy}</div>
-                              <div className="text-text-primary font-bold mt-1">{exp.control_recovery_rate}% rate</div>
-                              <div className="text-[10px] text-text-muted">({exp.control_cases} cases)</div>
-                            </div>
-                            <div className="border-l border-ledger-border pl-2">
-                              <div className="text-teal-success font-bold">TREATMENT</div>
-                              <div className="text-text-muted">{exp.treatment_strategy}</div>
-                              <div className="text-teal-success font-bold mt-1">{exp.treatment_recovery_rate}% rate</div>
-                              <div className="text-[10px] text-text-muted">({exp.treatment_cases} cases)</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between text-[11px] text-text-muted pt-1 border-t border-ledger-border/50">
-                            <span>Incremental Rev: <strong className="text-amber-gold">₹{(exp.estimated_incremental_revenue / 100000).toFixed(2)}L</strong></span>
-                            <span className="text-[10px] uppercase font-bold text-text-muted">Confidence: {exp.confidence}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              {/* AI PRIORITY BRIEF & WHAT CHANGED SECTION */}
-              <section className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 border-b border-ledger-border font-jetbrains">
-                <div className="lg:col-span-7 ledger-panel-gold p-6 space-y-5 relative">
-                  <div className="flex items-center justify-between border-b border-amber-gold/30 pb-3">
-                    <div className="text-xs text-amber-gold font-bold uppercase tracking-widest flex items-center">
-                      <span className="w-2 h-2 bg-amber-gold mr-2"></span>
-                      AI PRIORITY BRIEF
-                    </div>
-                    <span className="text-[10px] text-amber-gold/80">EXECUTIVE ACTION RECOMMENDATION</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h3 className="font-serif-headline text-2xl text-text-primary leading-snug">
-                      "{brief?.ai_priority_brief.title || "3 accounts represent 62% of today's recoverable revenue."}"
-                    </h3>
-                    <p className="font-sans text-xs text-text-muted leading-relaxed">
-                      {brief?.ai_priority_brief.summary || "Two are high-value failed payments where another automatic retry has low expected value. One is an overdue enterprise invoice with a strong historical payment pattern after manual follow-up."}
-                    </p>
-                    <div className="bg-ledger-bg p-3 border border-amber-gold/30 text-xs font-bold text-amber-gold">
-                      {brief?.ai_priority_brief.recommendation || "Recommended priority: review these three cases before processing lower-value recovery attempts."}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-amber-gold/20">
-                    <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">EVIDENCE RETRIEVED FROM DATASET</div>
-                    <div className="flex flex-wrap gap-2">
-                      {brief?.ai_priority_brief.evidence.map((ev, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => brief?.ai_priority_brief.top_cases[0] && handleSelectCaseById(brief.ai_priority_brief.top_cases[0].event_id)}
-                          className="px-2.5 py-1 bg-ledger-bg border border-amber-gold/40 text-amber-gold text-[11px] font-mono hover:bg-amber-gold/20 transition"
-                        >
-                          [{ev.label}] ➔
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-5 ledger-panel p-6 space-y-4">
-                  <div className="text-xs text-text-primary uppercase font-bold tracking-widest border-b border-ledger-border pb-3">
-                    WHAT CHANGED (PERIOD COMPARISON)
-                  </div>
-
-                  <div className="space-y-3 text-xs">
-                    {brief?.what_changed.map((wc, idx) => (
-                      <div key={idx} className="border-b border-ledger-border/50 pb-2.5">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-text-primary">{wc.category}</span>
-                          <span className={`font-bold ${wc.is_negative ? 'text-danger-red' : 'text-teal-success'}`}>
-                            {wc.change}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-text-muted mt-0.5">
-                          Main driver: <span className="text-text-primary font-mono">{wc.driver}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              {/* INTERVENTION PERFORMANCE & OPPORTUNITY MAP SECTION */}
-              <section className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 border-b border-ledger-border font-jetbrains">
-                <div className="lg:col-span-7 ledger-panel p-6 space-y-5">
-                  <div className="flex items-center justify-between border-b border-ledger-border pb-3">
-                    <div>
-                      <div className="text-xs text-amber-gold uppercase font-bold tracking-widest">WHAT'S WORKING</div>
-                      <h3 className="font-serif-headline text-2xl text-text-primary mt-0.5">Intervention Performance & Economic Efficiency</h3>
-                    </div>
-                    <span className="text-[10px] text-text-muted">RECOVERED / INTERVENTION</span>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-ledger-card-subtle uppercase text-[10px] text-text-muted border-b border-ledger-border">
-                        <tr>
-                          <th className="py-2.5 px-3">Intervention</th>
-                          <th className="py-2.5 px-3 text-right">Recovery Rate</th>
-                          <th className="py-2.5 px-3 text-right">Total Recovered</th>
-                          <th className="py-2.5 px-3 text-right">₹ / Intervention</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-ledger-border">
-                        {brief?.intervention_performance.map((ip, idx) => (
-                          <tr key={idx} className="hover:bg-white/5">
-                            <td className="py-3 px-3 font-bold text-text-primary">{ip.type}</td>
-                            <td className="py-3 px-3 text-right font-bold text-teal-success">{ip.rate}%</td>
-                            <td className="py-3 px-3 text-right font-bold text-text-primary">₹{(ip.recovered / 100000).toFixed(1)}L</td>
-                            <td className="py-3 px-3 text-right font-bold text-amber-gold">₹{ip.efficiency.toLocaleString('en-IN')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-5 ledger-panel p-6 space-y-4">
-                  <div className="text-xs text-text-primary uppercase font-bold tracking-widest border-b border-ledger-border pb-3">
-                    REVENUE OPPORTUNITY MAP (LEAKAGE CATEGORIES)
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    {brief?.opportunity_map.map((om, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => { setCategoryFilter(om.category); setPage(1); navigateToRoute('recovery', '/recovery', 'cases-section'); }}
-                        className="ledger-panel p-3 text-left hover:border-amber-gold transition group"
-                      >
-                        <div className="text-[10px] text-text-muted uppercase font-bold group-hover:text-amber-gold">{om.label}</div>
-                        <div className="text-lg font-bold text-text-primary mt-1">₹{(om.amount / 100000).toFixed(1)}L</div>
-                        <div className="text-[9px] text-amber-gold mt-1">Filter Queue ➔</div>
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </section>
 
@@ -1348,14 +2047,16 @@
                   </div>
 
                   <div className="space-y-3 text-xs">
-                    {brief?.daily_action_plan.map((ap) => (
+                    {brief?.daily_action_plan ? brief.daily_action_plan.map((ap) => (
                       <div key={ap.step} className="flex space-x-3 items-start border-b border-ledger-border/40 pb-2.5">
                         <span className="w-5 h-5 rounded-full bg-amber-gold text-ledger-bg font-bold flex items-center justify-center text-[10px] shrink-0">
                           0{ap.step}
                         </span>
                         <span className="text-text-primary text-[11px] leading-relaxed">{ap.action}</span>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="text-text-muted italic">Click '⚡ LOAD DEMO DATA' above to populate sample workspace actions.</div>
+                    )}
                   </div>
                 </div>
 
@@ -1367,7 +2068,7 @@
                 </div>
               </section>
 
-              {/* TOP RECOVERY OPPORTUNITIES TABLE (RECOVERY PAGE) */}
+              {/* TOP RECOVERY OPPORTUNITIES TABLE */}
               <section id="cases-section" className="max-w-7xl mx-auto px-6 py-12 space-y-6">
                 <div className="ledger-panel p-6 space-y-6">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-ledger-border pb-4 font-jetbrains">
@@ -1451,7 +2152,9 @@
                           </tr>
                         ) : cases.length === 0 ? (
                           <tr>
-                            <td colSpan="7" className="py-8 text-center text-text-muted font-jetbrains">No matching opportunities found.</td>
+                            <td colSpan="7" className="py-8 text-center text-text-muted font-jetbrains">
+                              No events found in workspace. Click <strong>'⚡ LOAD DEMO DATA'</strong> or send a webhook test.
+                            </td>
                           </tr>
                         ) : (
                           cases.map((c, idx) => (
@@ -1509,93 +2212,10 @@
                   </div>
                 </div>
               </section>
-
-              {/* CONTROL LAYER / POLICY ENGINE DIAGRAM SECTION */}
-              <section id="policy-section" className="max-w-7xl mx-auto px-6 py-12 border-b border-ledger-border">
-                <div className="ledger-panel p-6 space-y-6 font-jetbrains">
-                  <div className="border-b border-ledger-border pb-4">
-                    <div className="text-xs text-amber-gold uppercase font-bold tracking-widest">THE CONTROL LAYER</div>
-                    <h3 className="font-serif-headline text-3xl text-text-primary mt-1">AI decides what is possible. Policy decides what is allowed.</h3>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-center py-2 text-xs">
-                    <div className="ledger-panel p-3.5 bg-ledger-card-subtle">
-                      <div className="text-[10px] text-text-muted font-bold">1. INPUT EVENT</div>
-                      <div className="font-bold text-text-primary mt-1">PAYMENT FAILED</div>
-                    </div>
-                    <div className="ledger-panel p-3.5 bg-ledger-card-subtle">
-                      <div className="text-[10px] text-text-muted font-bold">2. DIAGNOSTIC</div>
-                      <div className="font-bold text-amber-gold mt-1">RISK: 0.87 HIGH</div>
-                    </div>
-                    <div className="ledger-panel p-3.5 bg-amber-gold/10 border-amber-gold/40">
-                      <div className="text-[10px] text-amber-gold font-bold">3. POLICY ENGINE</div>
-                      <div className="font-bold text-amber-gold mt-1">6 RULES EVALUATED</div>
-                    </div>
-                    <div className="ledger-panel p-3.5 bg-ledger-card-subtle">
-                      <div className="text-[10px] text-text-muted font-bold">4. INTERVENTION</div>
-                      <div className="font-bold text-text-primary mt-1">AUTO RETRY</div>
-                    </div>
-                    <div className="ledger-panel p-3.5 bg-teal-success/10 border-teal-success/30">
-                      <div className="text-[10px] text-teal-success font-bold">5. RECORDED</div>
-                      <div className="font-bold text-teal-success mt-1">RECOVERED ₹1,249</div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* COUNTERFACTUAL RECOVERY SIMULATOR SECTION */}
-              {simulator && (
-                <section id="simulator-section" className="max-w-7xl mx-auto px-6 py-12 font-jetbrains">
-                  <div className="ledger-panel p-6 space-y-4">
-                    <div>
-                      <div className="text-xs text-amber-gold font-bold uppercase tracking-widest">
-                        COUNTERFACTUAL ANALYTICS // STRATEGY SIMULATION
-                      </div>
-                      <h3 className="font-serif-headline text-3xl text-text-primary mt-1">
-                        Simulated Policy Strategy Performance
-                      </h3>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-ledger-card-subtle text-text-muted uppercase text-[10px] border-b border-ledger-border">
-                          <tr>
-                            <th className="py-3 px-4">Strategy</th>
-                            <th className="py-3 px-4">Description</th>
-                            <th className="py-3 px-4 text-right">Recovery Rate</th>
-                            <th className="py-3 px-4 text-right">Total Recovered</th>
-                            <th className="py-3 px-4 text-right">Delta vs Actual</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-ledger-border">
-                          {simulator.scenarios.map((s, idx) => (
-                            <tr
-                              key={idx}
-                              className={s.is_actual ? "bg-amber-gold/10 font-bold border-l-2 border-l-amber-gold text-text-primary" : "hover:bg-white/5"}
-                            >
-                              <td className="py-3 px-4 font-bold text-text-primary">{s.strategy}</td>
-                              <td className="py-3 px-4 text-text-muted text-[11px]">{s.description}</td>
-                              <td className="py-3 px-4 text-right font-bold text-teal-success">{s.recovery_rate}%</td>
-                              <td className="py-3 px-4 text-right font-bold text-text-primary">
-                                ₹{s.total_revenue_recovered.toLocaleString('en-IN')}
-                              </td>
-                              <td className={`py-3 px-4 text-right font-bold ${s.lift_vs_actual > 0 ? 'text-teal-success' : s.lift_vs_actual < 0 ? 'text-danger-red' : 'text-text-muted'}`}>
-                                {s.lift_vs_actual === 0 ? 'Baseline' : `${s.lift_vs_actual > 0 ? '+' : ''}₹${s.lift_vs_actual.toLocaleString('en-IN')}`}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </section>
-              )}
             </>
           )}
 
-          {/* ----------------------------------------------------------------- */}
-          {/* RIGHT-SIDE TRANSACTION INVESTIGATION DRAWER MODAL                */}
-          {/* ----------------------------------------------------------------- */}
+          {/* DRAWER MODAL */}
           {selectedCase && (
             <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-end z-50 overflow-y-auto font-jetbrains">
               <div className={`ledger-panel max-w-2xl w-full h-full p-8 space-y-6 relative border-l-4 overflow-y-auto ${selectedCase.blocking_rule ? 'border-l-amber-gold' : 'border-l-teal-success'}`}>
@@ -1607,7 +2227,6 @@
                   ✕
                 </button>
 
-                {/* DRAWER HEADER SUMMARY */}
                 <div>
                   <div className="text-xs text-amber-gold font-bold uppercase tracking-widest">
                     RECOVERY TRACE // {selectedCase.event_id}
@@ -1647,115 +2266,6 @@
                   </div>
                 )}
 
-                {/* CHRONOLOGICAL RECOVERY TIMELINE */}
-                <div className="space-y-4 pt-2">
-                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
-                    CHRONOLOGICAL RECOVERY TIMELINE
-                  </div>
-
-                  <div className="space-y-4 text-xs font-mono relative pl-4 border-l border-ledger-border">
-                    <div className="relative">
-                      <span className="w-2 h-2 rounded-full bg-danger-red absolute -left-[21px] top-1"></span>
-                      <div className="text-[10px] text-text-muted">11:02:48.231</div>
-                      <div className="font-bold text-danger-red uppercase">PAYMENT_FAILED</div>
-                      <div className="text-text-muted text-[11px]">Reason: INSUFFICIENT_FUNDS</div>
-                    </div>
-
-                    <div className="relative">
-                      <span className="w-2 h-2 rounded-full bg-amber-gold absolute -left-[21px] top-1"></span>
-                      <div className="text-[10px] text-text-muted">11:02:49.104</div>
-                      <div className="font-bold text-amber-gold uppercase">RISK_SCORED</div>
-                      <div className="text-text-muted text-[11px]">
-                        Probability: <span className="text-teal-success font-bold">{(selectedCase.recovery_probability * 100).toFixed(1)}%</span> | At risk: ₹{selectedCase.amount.toLocaleString('en-IN')}
-                      </div>
-                    </div>
-
-                    <div className="relative">
-                      <span className="w-2 h-2 rounded-full bg-amber-gold absolute -left-[21px] top-1"></span>
-                      <div className="text-[10px] text-text-muted">11:02:49.882</div>
-                      <div className="font-bold text-amber-gold uppercase">POLICY_MATCHED</div>
-                      <div className="text-text-muted text-[11px]">Matched policy: <span className="text-text-primary">high_value_retry_v2</span></div>
-                    </div>
-
-                    <div className="relative">
-                      <span className="w-2 h-2 rounded-full bg-amber-gold absolute -left-[21px] top-1"></span>
-                      <div className="text-[10px] text-text-muted">11:02:50.114</div>
-                      <div className="font-bold text-text-primary uppercase">ACTION_APPROVED</div>
-                      <div className="text-text-muted text-[11px]">
-                        Action: <span className="text-amber-gold font-bold">{selectedCase.recommended_action}</span> | Status: <span className="text-teal-success">✓ APPROVED</span>
-                      </div>
-                    </div>
-
-                    <div className="relative">
-                      <span className="w-2 h-2 rounded-full bg-teal-success absolute -left-[21px] top-1"></span>
-                      <div className="text-[10px] text-text-muted">11:04:17.421</div>
-                      <div className="font-bold text-teal-success uppercase">PAYMENT_RECOVERED</div>
-                      <div className="text-text-muted text-[11px]">
-                        Amount Recovered: <span className="text-teal-success font-bold">₹{Math.round(selectedCase.amount * selectedCase.recovery_probability).toLocaleString('en-IN')}</span>
-                      </div>
-                    </div>
-
-                    <div className="relative">
-                      <span className="w-2 h-2 rounded-full bg-teal-success absolute -left-[21px] top-1"></span>
-                      <div className="text-[10px] text-text-muted">11:04:17.502</div>
-                      <div className="font-bold text-teal-success uppercase">CASE_CLOSED</div>
-                      <div className="text-text-muted text-[11px]">Outcome: SUCCESS</div>
-                    </div>
-                  </div>
-                </div>
-              {/* POLICY DECISION TRACE */}
-                <div className="space-y-3 pt-2">
-                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
-                    POLICY DECISION TRACE & BOUNDS
-                  </div>
-
-                  <div className="bg-ledger-card-subtle p-4 border border-ledger-border space-y-2 text-xs">
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
-                      <div><span className="text-text-muted block">RISK SCORE</span><span className="font-bold text-teal-success">{(selectedCase.recovery_probability * 100).toFixed(1)}%</span></div>
-                      <div><span className="text-text-muted block">CUSTOMER VALUE</span><span className="font-bold text-text-primary">HIGH</span></div>
-                      <div><span className="text-text-muted block">PREVIOUS RETRIES</span><span className="font-bold text-text-primary">{selectedCase.attempt_count || 1} / 3</span></div>
-                      <div><span className="text-text-muted block">COOLDOWN</span><span className="font-bold text-teal-success">SATISFIED</span></div>
-                    </div>
-
-                    <div className="pt-2 border-t border-ledger-border space-y-1 text-[11px] text-teal-success font-bold">
-                      <div>✓ ACTION WITHIN POLICY PARAMETERS</div>
-                      <div>✓ NO POLICY VIOLATION DETECTED</div>
-                      <div>✓ EXECUTION AUTHORIZED BY DETERMINISTIC CONTROL</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ENGINEERING DECISION NODE GRAPH */}
-                <div className="space-y-3 pt-2">
-                  <div className="text-xs text-amber-gold font-bold uppercase tracking-wider border-b border-ledger-border pb-2">
-                    TECHNICAL DECISION GRAPH TRACE
-                  </div>
-
-                  <div className="grid grid-cols-5 gap-2 text-center text-[10px] font-mono py-2">
-                    <div className="ledger-panel p-2">
-                      <div className="text-text-muted">FAILED</div>
-                      <div className="font-bold text-danger-red mt-0.5">PAYMENT</div>
-                    </div>
-                    <div className="ledger-panel p-2">
-                      <div className="text-text-muted">RISK</div>
-                      <div className="font-bold text-teal-success mt-0.5">{(selectedCase.recovery_probability * 100).toFixed(0)}%</div>
-                    </div>
-                    <div className="ledger-panel p-2 border-amber-gold">
-                      <div className="text-amber-gold">POLICY</div>
-                      <div className="font-bold text-amber-gold mt-0.5">ENGINE</div>
-                    </div>
-                    <div className="ledger-panel p-2">
-                      <div className="text-text-muted">ACTION</div>
-                      <div className="font-bold text-text-primary mt-0.5">{selectedCase.final_action}</div>
-                    </div>
-                    <div className="ledger-panel p-2 border-teal-success bg-teal-success/10">
-                      <div className="text-teal-success">STATE</div>
-                      <div className="font-bold text-teal-success mt-0.5">RECOVERED</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* AI DIAGNOSTIC REASONING */}
                 <div className="space-y-1 pt-2">
                   <div className="text-[10px] uppercase text-text-muted font-bold">AI DIAGNOSTIC REASONING</div>
                   <div className="bg-ledger-card-subtle p-4 text-xs italic text-text-primary border border-ledger-border leading-relaxed">
@@ -1787,7 +2297,7 @@
                 <p className="text-[11px] text-text-muted">AUTONOMOUS REVENUE RECOVERY CONTROL PLANE. BUILT FOR CONTROLLED EXECUTION.</p>
               </div>
               <div className="text-right text-[11px] text-text-muted">
-                <span>© 2026 RecoverAI</span>
+                <span>© 2026 RecoverAI • Multi-tenant Workspace Isolation Active</span>
               </div>
             </div>
           </footer>

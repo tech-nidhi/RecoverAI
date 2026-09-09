@@ -1,9 +1,5 @@
 """
-Structured Backend Operational Tools for RecoverAI AI Copilot.
-
-Provides deterministic, read-only tools and safe simulation tools for querying RecoverAI
-metrics, cases, policy decisions, governance status, transaction traces, and intervention performance.
-Ensures zero arbitrary SQL generation by LLM.
+Structured Backend Operational Tools for RecoverAI AI Copilot (Multi-Tenant Aware).
 """
 
 import sqlite3
@@ -15,6 +11,7 @@ from analytics.attribution import compute_recovery_impact_metrics, get_transacti
 from analytics.experiments import get_all_experiments
 from policy.governance import get_governance_config, get_pending_approvals, ensure_governance_tables_exist
 from execution.idempotency import ensure_action_executions_table_exists
+from auth.tenancy import DEFAULT_WORKSPACE_ID
 
 
 def _get_db_connection(db_path: str = "data/recover_ai.db"):
@@ -23,12 +20,14 @@ def _get_db_connection(db_path: str = "data/recover_ai.db"):
     return conn
 
 
-def get_recovery_metrics(db_path: str = "data/recover_ai.db") -> Dict[str, Any]:
+def get_recovery_metrics(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
-    Returns top-level recovery performance metrics: total revenue at risk, recovered revenue,
-    overall recovery rate, organic baseline rate, estimated incremental lift, and net ROI.
+    Returns top-level recovery performance metrics for a specific workspace.
     """
-    impact = compute_recovery_impact_metrics(db_path=db_path)
+    impact = compute_recovery_impact_metrics(db_path=db_path, workspace_id=workspace_id)
     m = impact["metrics"]
     return {
         "tool_name": "get_recovery_metrics",
@@ -46,16 +45,17 @@ def get_recovery_cases(
     category: Optional[str] = None,
     action: Optional[str] = None,
     status: Optional[str] = None,
-    limit: int = 10
+    limit: int = 10,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
-    Returns filtered active recovery cases from revenue_events database table.
+    Returns filtered active recovery cases from revenue_events table for a workspace.
     """
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
 
-    query = "SELECT * FROM revenue_events WHERE 1=1"
-    params = []
+    query = "SELECT * FROM revenue_events WHERE workspace_id = ?"
+    params = [workspace_id]
 
     if category:
         query += " AND (event_type LIKE ? OR archetype LIKE ?)"
@@ -83,14 +83,18 @@ def get_recovery_cases(
     }
 
 
-def get_case_details(db_path: str = "data/recover_ai.db", case_id: str = "") -> Dict[str, Any]:
+def get_case_details(
+    db_path: str = "data/recover_ai.db",
+    case_id: str = "",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
-    Returns complete details, ML probability, policy decisions, and reasoning text for a specific case_id.
+    Returns complete details, ML probability, policy decisions, and reasoning text for a specific case_id in workspace.
     """
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM revenue_events WHERE event_id = ? OR event_id LIKE ? LIMIT 1;", (case_id, f"%{case_id}%"))
+    cursor.execute("SELECT * FROM revenue_events WHERE (event_id = ? OR event_id LIKE ?) AND workspace_id = ? LIMIT 1;", (case_id, f"%{case_id}%", workspace_id))
     row = cursor.fetchone()
     conn.close()
 
@@ -99,7 +103,7 @@ def get_case_details(db_path: str = "data/recover_ai.db", case_id: str = "") -> 
             "tool_name": "get_case_details",
             "found": False,
             "case_id": case_id,
-            "message": f"Case '{case_id}' was not found in RecoverAI database records."
+            "message": f"Case '{case_id}' was not found in workspace database records."
         }
 
     case_data = dict(row)
@@ -112,12 +116,16 @@ def get_case_details(db_path: str = "data/recover_ai.db", case_id: str = "") -> 
     }
 
 
-def get_transaction_trace(db_path: str = "data/recover_ai.db", transaction_id: str = "") -> Dict[str, Any]:
+def get_transaction_trace(
+    db_path: str = "data/recover_ai.db",
+    transaction_id: str = "",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
     Returns transaction-level incremental attribution and execution trace.
     """
     try:
-        trace = get_transaction_attribution_trace(transaction_id, db_path=db_path)
+        trace = get_transaction_attribution_trace(transaction_id, db_path=db_path, workspace_id=workspace_id)
         data_dict = trace.model_dump() if hasattr(trace, "model_dump") else trace.dict()
         return {
             "tool_name": "get_transaction_trace",
@@ -138,17 +146,18 @@ def get_transaction_trace(db_path: str = "data/recover_ai.db", transaction_id: s
 def get_audit_events(
     db_path: str = "data/recover_ai.db",
     event_type: Optional[str] = None,
-    limit: int = 10
+    limit: int = 10,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
-    Returns recent governance and operational audit logs.
+    Returns recent governance and operational audit logs for a workspace.
     """
     ensure_governance_tables_exist(db_path)
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
 
-    query = "SELECT * FROM governance_audit_logs WHERE 1=1"
-    params = []
+    query = "SELECT * FROM governance_audit_logs WHERE workspace_id = ?"
+    params = [workspace_id]
     if event_type:
         query += " AND event_type LIKE ?"
         params.append(f"%{event_type}%")
@@ -171,16 +180,17 @@ def get_audit_events(
 def get_policy_decisions(
     db_path: str = "data/recover_ai.db",
     rule: Optional[str] = None,
-    limit: int = 10
+    limit: int = 10,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
-    Returns policy decisions and blocked case logs.
+    Returns policy decisions and blocked case logs for a workspace.
     """
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
 
-    query = "SELECT event_id, customer_id, amount, recommended_action, executed_action, policy_decision, outcome FROM revenue_events WHERE policy_decision IS NOT NULL"
-    params = []
+    query = "SELECT event_id, customer_id, amount, recommended_action, executed_action, policy_decision, outcome FROM revenue_events WHERE policy_decision IS NOT NULL AND workspace_id = ?"
+    params = [workspace_id]
     if rule:
         query += " AND policy_decision LIKE ?"
         params.append(f"%{rule}%")
@@ -200,14 +210,17 @@ def get_policy_decisions(
     }
 
 
-def get_governance_status(db_path: str = "data/recover_ai.db") -> Dict[str, Any]:
+def get_governance_status(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
-    Returns active Global Automation Kill Switch state, action controls, max retries, cooldown, and pending approvals.
+    Returns active Global Automation Kill Switch state, action controls, max retries, cooldown, and pending approvals for workspace.
     """
     ensure_governance_tables_exist(db_path)
-    cfg = get_governance_config(db_path)
+    cfg = get_governance_config(db_path, workspace_id=workspace_id)
     cfg_dict = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg.dict()
-    approvals = get_pending_approvals(db_path)
+    approvals = get_pending_approvals(db_path, workspace_id=workspace_id)
 
     return {
         "tool_name": "get_governance_status",
@@ -224,11 +237,14 @@ def get_governance_status(db_path: str = "data/recover_ai.db") -> Dict[str, Any]
     }
 
 
-def get_intervention_performance(db_path: str = "data/recover_ai.db") -> Dict[str, Any]:
+def get_intervention_performance(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
     Returns recovery rate, baseline, incremental lift, and sample size for each recovery intervention.
     """
-    impact = compute_recovery_impact_metrics(db_path=db_path)
+    impact = compute_recovery_impact_metrics(db_path=db_path, workspace_id=workspace_id)
     return {
         "tool_name": "get_intervention_performance",
         "interventions": impact["interventions"],
@@ -236,11 +252,14 @@ def get_intervention_performance(db_path: str = "data/recover_ai.db") -> Dict[st
     }
 
 
-def get_recovery_attribution(db_path: str = "data/recover_ai.db") -> Dict[str, Any]:
+def get_recovery_attribution(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
     Returns incremental recovery attribution metrics, organic baseline breakdown, and execution costs.
     """
-    impact = compute_recovery_impact_metrics(db_path=db_path)
+    impact = compute_recovery_impact_metrics(db_path=db_path, workspace_id=workspace_id)
     return {
         "tool_name": "get_recovery_attribution",
         "attribution": impact["metrics"],
@@ -249,11 +268,14 @@ def get_recovery_attribution(db_path: str = "data/recover_ai.db") -> Dict[str, A
     }
 
 
-def get_experiment_results(db_path: str = "data/recover_ai.db") -> Dict[str, Any]:
+def get_experiment_results(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
-    Returns active A/B strategy experiments and control vs treatment lift.
+    Returns active A/B strategy experiments and control vs treatment lift for workspace.
     """
-    experiments = get_all_experiments(db_path)
+    experiments = get_all_experiments(db_path, workspace_id=workspace_id)
     return {
         "tool_name": "get_experiment_results",
         "count": len(experiments),
@@ -262,14 +284,17 @@ def get_experiment_results(db_path: str = "data/recover_ai.db") -> Dict[str, Any
     }
 
 
-def get_execution_failures(db_path: str = "data/recover_ai.db", limit: int = 10) -> Dict[str, Any]:
+def get_execution_failures(
+    db_path: str = "data/recover_ai.db",
+    limit: int = 10,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
-    Returns failed recovery executions and ambiguous network timeout actions from action_executions table.
+    Returns failed recovery executions and ambiguous network timeout actions for a workspace.
     """
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
 
-    # Check if action_executions table exists
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='action_executions';")
     if not cursor.fetchone():
         conn.close()
@@ -277,9 +302,9 @@ def get_execution_failures(db_path: str = "data/recover_ai.db", limit: int = 10)
 
     cursor.execute("""
         SELECT * FROM action_executions
-        WHERE status IN ('FAILED', 'UNKNOWN', 'MANUAL_REVIEW')
+        WHERE status IN ('FAILED', 'UNKNOWN', 'MANUAL_REVIEW') AND workspace_id = ?
         ORDER BY started_at DESC LIMIT ?;
-    """, (limit,))
+    """, (workspace_id, limit))
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
@@ -291,9 +316,13 @@ def get_execution_failures(db_path: str = "data/recover_ai.db", limit: int = 10)
     }
 
 
-def get_top_revenue_at_risk(db_path: str = "data/recover_ai.db", limit: int = 5) -> Dict[str, Any]:
+def get_top_revenue_at_risk(
+    db_path: str = "data/recover_ai.db",
+    limit: int = 5,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> Dict[str, Any]:
     """
-    Returns top active recovery cases sorted by amount at risk and expected recoverable value.
+    Returns top active recovery cases sorted by amount at risk and expected recoverable value for workspace.
     """
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
@@ -301,17 +330,18 @@ def get_top_revenue_at_risk(db_path: str = "data/recover_ai.db", limit: int = 5)
     cursor.execute("""
         SELECT event_id, customer_id, amount, recovery_probability, recommended_action, executed_action, outcome, reasoning_text
         FROM revenue_events
-        WHERE outcome NOT IN ('SUCCESS', 'CLOSED')
+        WHERE outcome NOT IN ('SUCCESS', 'CLOSED') AND workspace_id = ?
         ORDER BY (amount * COALESCE(recovery_probability, 0.8)) DESC LIMIT ?;
-    """, (limit,))
+    """, (workspace_id, limit))
     rows = [dict(r) for r in cursor.fetchall()]
 
     if not rows:
         cursor.execute("""
             SELECT event_id, customer_id, amount, recovery_probability, recommended_action, executed_action, outcome, reasoning_text
             FROM revenue_events
+            WHERE workspace_id = ?
             ORDER BY amount DESC LIMIT ?;
-        """, (limit,))
+        """, (workspace_id, limit))
         rows = [dict(r) for r in cursor.fetchall()]
 
     conn.close()
@@ -327,22 +357,22 @@ def get_top_revenue_at_risk(db_path: str = "data/recover_ai.db", limit: int = 5)
 def simulate_policy_change(
     db_path: str = "data/recover_ai.db",
     proposed_max_retries: int = 3,
-    proposed_cooldown_hours: int = 24
+    proposed_cooldown_hours: int = 24,
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
-    Simulates proposed policy changes (e.g. max retries, cooldown) without modifying production policy.
+    Simulates proposed policy changes for workspace without modifying production policy.
     """
     conn = _get_db_connection(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*), SUM(amount) FROM revenue_events WHERE outcome != 'SUCCESS';")
+    cursor.execute("SELECT COUNT(*), SUM(amount) FROM revenue_events WHERE outcome != 'SUCCESS' AND workspace_id = ?;", (workspace_id,))
     row = cursor.fetchone()
     conn.close()
 
     total_unrecovered = row[0] or 100
     unrecovered_amt = row[1] or 500000.0
 
-    # Calculate projected simulation lift
     current_max = 2
     retry_delta = max(0, proposed_max_retries - current_max)
     projected_lift_pct = round(retry_delta * 6.2, 1)
@@ -366,11 +396,11 @@ def simulate_policy_change(
 def request_automation_pause(
     db_path: str = "data/recover_ai.db",
     reason: str = "Manual pause requested via Copilot",
-    actor: str = "ADMIN"
+    actor: str = "ADMIN",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """
-    Generates a mutating action payload for pausing global automation.
-    Requires explicit human confirmation before dispatching.
+    Generates a mutating action payload for pausing global automation for a workspace.
     """
     return {
         "tool_name": "request_automation_pause",
@@ -379,6 +409,7 @@ def request_automation_pause(
         "target": "Global Automation Kill Switch",
         "details": f"Pause all automated recovery dispatches. Reason: {reason}",
         "actor": actor,
+        "workspace_id": workspace_id,
         "confirmation_prompt": "Are you sure you want to pause all automated recovery dispatches across RecoverAI?",
         "source": {"type": "policy_governance", "name": "Governance Kill Switch API"}
     }

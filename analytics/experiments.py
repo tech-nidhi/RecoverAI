@@ -1,5 +1,5 @@
 """
-Recovery Experimentation & Strategy Comparison Framework for RecoverAI.
+Recovery Experimentation & Strategy Comparison Framework for RecoverAI (Multi-Tenant Aware).
 """
 
 import sqlite3
@@ -12,10 +12,12 @@ from schema.attribution_schema import (
     ExperimentRecord,
     ExperimentCreateRequest,
 )
+from auth.tenancy import ensure_tenancy_tables_and_columns_exist, DEFAULT_WORKSPACE_ID
 
 
 def ensure_experiments_table_exists(db_path: str = "data/recover_ai.db") -> None:
-    """Ensures experiments table exists and seeds 3 initial demo experiments if empty."""
+    """Ensures experiments table exists and seeds initial demo experiments if empty."""
+    ensure_tenancy_tables_and_columns_exist(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -33,11 +35,12 @@ def ensure_experiments_table_exists(db_path: str = "data/recover_ai.db") -> None
             control_recovery_rate REAL NOT NULL,
             treatment_recovery_rate REAL NOT NULL,
             estimated_incremental_revenue REAL NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            workspace_id TEXT DEFAULT 'ws_default'
         );
     """)
 
-    cursor.execute("SELECT COUNT(*) FROM experiments;")
+    cursor.execute("SELECT COUNT(*) FROM experiments WHERE workspace_id = ?;", (DEFAULT_WORKSPACE_ID,))
     cnt = cursor.fetchone()[0]
 
     if cnt == 0:
@@ -54,7 +57,8 @@ def ensure_experiments_table_exists(db_path: str = "data/recover_ai.db") -> None
                 1240, 1260,
                 48.2, 63.7,
                 342000.0,
-                now_str
+                now_str,
+                DEFAULT_WORKSPACE_ID
             ),
             (
                 "exp_checkout_abandonment_v2",
@@ -67,7 +71,8 @@ def ensure_experiments_table_exists(db_path: str = "data/recover_ai.db") -> None
                 850, 875,
                 28.5, 52.4,
                 218000.0,
-                now_str
+                now_str,
+                DEFAULT_WORKSPACE_ID
             ),
             (
                 "exp_saas_dunning_v1",
@@ -80,7 +85,8 @@ def ensure_experiments_table_exists(db_path: str = "data/recover_ai.db") -> None
                 620, 640,
                 42.1, 71.8,
                 185000.0,
-                now_str
+                now_str,
+                DEFAULT_WORKSPACE_ID
             )
         ]
 
@@ -89,22 +95,25 @@ def ensure_experiments_table_exists(db_path: str = "data/recover_ai.db") -> None
                 experiment_id, name, event_type, segment, control_strategy,
                 treatment_strategy, traffic_allocation, control_cases, treatment_cases,
                 control_recovery_rate, treatment_recovery_rate, estimated_incremental_revenue,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                created_at, workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, default_experiments)
 
     conn.commit()
     conn.close()
 
 
-def get_all_experiments(db_path: str = "data/recover_ai.db") -> List[Dict[str, Any]]:
-    """Returns list of active & completed recovery experiments with calculated lift metrics."""
+def get_all_experiments(
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> List[Dict[str, Any]]:
+    """Returns list of active & completed recovery experiments for a workspace."""
     ensure_experiments_table_exists(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM experiments ORDER BY created_at DESC;")
+    cursor.execute("SELECT * FROM experiments WHERE workspace_id = ? ORDER BY created_at DESC;", (workspace_id,))
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
@@ -143,9 +152,10 @@ def get_all_experiments(db_path: str = "data/recover_ai.db") -> List[Dict[str, A
 
 def create_experiment(
     req: ExperimentCreateRequest,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
-    """Creates a new recovery experiment in SQLite database."""
+    """Creates a new recovery experiment in SQLite database for a workspace."""
     ensure_experiments_table_exists(db_path)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -153,7 +163,6 @@ def create_experiment(
     exp_id = f"exp_{uuid4().hex[:10]}"
     now_str = datetime.utcnow().isoformat() + "Z"
 
-    # Initial baseline estimates for newly created experiment
     control_cases = 100
     treatment_cases = 100
     control_rate = 37.2
@@ -165,23 +174,24 @@ def create_experiment(
             experiment_id, name, event_type, segment, control_strategy,
             treatment_strategy, traffic_allocation, control_cases, treatment_cases,
             control_recovery_rate, treatment_recovery_rate, estimated_incremental_revenue,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            created_at, workspace_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """, (
         exp_id, req.name, req.event_type, req.segment, req.control_strategy,
         req.treatment_strategy, req.traffic_allocation, control_cases, treatment_cases,
-        control_rate, treatment_rate, inc_revenue, now_str
+        control_rate, treatment_rate, inc_revenue, now_str, workspace_id
     ))
 
     conn.commit()
     conn.close()
 
-    return get_experiment_detail(exp_id, db_path=db_path)
+    return get_experiment_detail(exp_id, db_path=db_path, workspace_id=workspace_id)
 
 
 def get_experiment_detail(
     experiment_id: str,
-    db_path: str = "data/recover_ai.db"
+    db_path: str = "data/recover_ai.db",
+    workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> Dict[str, Any]:
     """Gets detailed metrics for a single experiment."""
     ensure_experiments_table_exists(db_path)
@@ -189,7 +199,7 @@ def get_experiment_detail(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM experiments WHERE experiment_id = ?;", (experiment_id,))
+    cursor.execute("SELECT * FROM experiments WHERE experiment_id = ? AND workspace_id = ?;", (experiment_id, workspace_id))
     row = cursor.fetchone()
     conn.close()
 
